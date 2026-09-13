@@ -1131,8 +1131,8 @@ export function apply(ctx, config = {}, runtime = {}) {
   // session model does not declare image input, and the DeepSeek adapter
   // hardcodes text-only. This wrapper route (`deepseek-vision` by default)
   // declares image input so the admission passes, shows up in the model
-  // picker as "DeepSeek + 自动识图", and delegates to the real text-provider
-  // adapter for anything the waterfalls did not rewrite.
+  // picker as "DeepSeek + 自动识图", and delegates only to the official
+  // DeepSeek adapter (or the hidden native route during stealth takeover).
   //
   // The adapter is built unconditionally; whether (and under which name) it
   // mounts is reconciled reactively against the resolved settings document by
@@ -1140,12 +1140,16 @@ export function apply(ctx, config = {}, runtime = {}) {
   // take effect without a restart.
   let wrapperAdapter
   {
-    const WRAPPER_MODEL_IDS = ['deepseek-v4-pro', 'deepseek-v4-flash']
     const wrapName = (name) => name ?? 'DeepSeek'
-    const textProviderRoute = () => (stealthActive ? nativeRoute : textProvider().provider)
+    // The row is explicitly branded as DeepSeek, so its metadata and network
+    // authority must come from DeepSeek as well. `textProvider` is legacy
+    // configuration and must never let an arbitrary relay masquerade behind
+    // the special wrapper. During stealth takeover old wrapper sessions keep
+    // delegating to the hidden native DeepSeek route.
+    const wrapperDelegateRoute = () => (stealthActive ? nativeRoute : 'deepseek-official')
     const delegateAdapter = () => {
       try {
-        return ctx.llm.registration(textProviderRoute()).adapter
+        return ctx.llm.registration(wrapperDelegateRoute()).adapter
       } catch {
         return undefined
       }
@@ -1156,7 +1160,7 @@ export function apply(ctx, config = {}, runtime = {}) {
       },
       providerRetryPolicy() {
         try {
-          return ctx.llm.registration(textProviderRoute()).retryPolicy
+          return ctx.llm.registration(wrapperDelegateRoute()).retryPolicy
         } catch {
           return undefined
         }
@@ -1167,12 +1171,12 @@ export function apply(ctx, config = {}, runtime = {}) {
         if (stealthActive) return []
         const entries = []
         const real = delegateAdapter()
-        if (real !== undefined) {
+        if (real !== undefined && typeof real.listModels === 'function') {
           try {
-            const listed = await real.listModels(textProviderRoute())
+            const listed = await real.listModels('deepseek-official')
             entries.push(
-              ...listed
-                .filter((model) => WRAPPER_MODEL_IDS.includes(model.id))
+              ...(Array.isArray(listed) ? listed : [])
+                .filter((model) => model && typeof model.id === 'string' && model.id !== '')
                 .map((model) => ({
                   ...model,
                   provider: wrapperRoute(),
@@ -1221,14 +1225,29 @@ export function apply(ctx, config = {}, runtime = {}) {
               inputModalities: ['text', 'image'],
             }
           } catch {
-            /* fall through to the text-provider path */
+            /* fall through to the official DeepSeek path */
           }
         }
         const real = delegateAdapter()
-        if (real === undefined) {
-          throw new Error('vision-router: the text provider adapter is not available')
+        if (real === undefined || typeof real.resolveModel !== 'function') {
+          throw new Error('vision-router: the official DeepSeek adapter is not available')
         }
-        const base = await real.resolveModel(textProviderRoute(), model)
+        // Outside stealth mode, accept only models the live official catalog
+        // actually publishes. Some adapters can resolve arbitrary ids; that is
+        // not permission to expose them under the DeepSeek product identity.
+        if (!stealthActive) {
+          if (typeof real.listModels !== 'function') {
+            throw new Error('vision-router: the official DeepSeek catalog is not available')
+          }
+          const listed = await real.listModels('deepseek-official')
+          const admitted = Array.isArray(listed) && listed.some(
+            (entry) => entry && entry.id === model,
+          )
+          if (!admitted) {
+            throw new Error(`vision-router: DeepSeek model "${model}" is not in the live official catalog`)
+          }
+        }
+        const base = await real.resolveModel(wrapperDelegateRoute(), model)
         return {
           ...base,
           provider: wrapperRoute(),
@@ -1238,7 +1257,7 @@ export function apply(ctx, config = {}, runtime = {}) {
       },
       ...createWrapperStreamBody(ctx, {
         imageMemory,
-        delegateProvider: textProviderRoute(),
+        delegateProvider: wrapperDelegateRoute,
         instantLocal: instantLocalProvider,
         instantLocalStyle,
         instantLocalTimeoutMs: timeoutMs,
