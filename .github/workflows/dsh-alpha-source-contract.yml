@@ -36,6 +36,7 @@ on:
       - 'lib/vision-routing-settings-prelude.js'
       - 'scripts/dsh-alpha-source-contract.mjs'
       - 'scripts/dsh-web-modules-overlay-contract.mjs'
+      - 'scripts/dsh-web-connection-overlay-contract.mjs'
       - 'tests/adapter-prepare-call-compat.test.js'
       - 'tests/rc6-rc7-compat.test.js'
       - 'tests/alpha1-*.test.js'
@@ -79,6 +80,7 @@ on:
       - 'lib/vision-routing-settings-prelude.js'
       - 'scripts/dsh-alpha-source-contract.mjs'
       - 'scripts/dsh-web-modules-overlay-contract.mjs'
+      - 'scripts/dsh-web-connection-overlay-contract.mjs'
       - 'tests/adapter-prepare-call-compat.test.js'
       - 'tests/rc6-rc7-compat.test.js'
       - 'tests/alpha1-*.test.js'
@@ -212,6 +214,13 @@ jobs:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-exact
           DSH_MODULES_WEBSERVER_EXPECTED: shim-required
         run: pnpm exec tsx ../dvr/scripts/dsh-web-modules-overlay-contract.mjs
+
+      - name: Assert connection -> webServer compatibility overlay still belongs to DVR
+        working-directory: dsh-exact
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-exact
+          DSH_CONNECTION_WEBSERVER_EXPECTED: shim-required
+        run: pnpm exec tsx ../dvr/scripts/dsh-web-connection-overlay-contract.mjs
 
       - name: Run DVR release-family compatibility unit contracts
         working-directory: dvr

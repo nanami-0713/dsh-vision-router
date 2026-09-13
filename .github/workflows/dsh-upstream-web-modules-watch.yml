@@ -1,10 +1,11 @@
-name: DSH upstream Web modules watch
+name: DSH upstream Web compatibility overlay watch
 
 on:
   pull_request:
     paths:
       - 'cordis.patch.yml'
       - 'scripts/dsh-web-modules-overlay-contract.mjs'
+      - 'scripts/dsh-web-connection-overlay-contract.mjs'
       - 'tests/rc6-rc7-compat.test.js'
       - '.github/workflows/dsh-upstream-web-modules-watch.yml'
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - 'cordis.patch.yml'
       - 'scripts/dsh-web-modules-overlay-contract.mjs'
+      - 'scripts/dsh-web-connection-overlay-contract.mjs'
       - 'tests/rc6-rc7-compat.test.js'
       - '.github/workflows/dsh-upstream-web-modules-watch.yml'
   schedule:
@@ -27,7 +29,7 @@ concurrency:
 
 jobs:
   upstream-web-modules-watch:
-    name: current master modules -> webServer ownership
+    name: current master Web overlay ownership
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -78,9 +80,16 @@ jobs:
           LEFTHOOK: '0'
         run: pnpm install --frozen-lockfile
 
-      - name: Require DVR overlay to remain necessary and non-destructive
+      - name: Require modules -> webServer overlay to remain necessary and non-destructive
         working-directory: dsh
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh
           DSH_MODULES_WEBSERVER_EXPECTED: shim-required
         run: pnpm exec tsx ../dvr/scripts/dsh-web-modules-overlay-contract.mjs
+
+      - name: Require connection -> webServer overlay to remain necessary and non-destructive
+        working-directory: dsh
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh
+          DSH_CONNECTION_WEBSERVER_EXPECTED: shim-required
+        run: pnpm exec tsx ../dvr/scripts/dsh-web-connection-overlay-contract.mjs
