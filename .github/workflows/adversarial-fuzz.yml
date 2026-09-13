@@ -6,8 +6,10 @@ on:
       - 'index.js'
       - 'lib/**'
       - 'scripts/security-adversarial-fuzz.mjs'
+      - 'tests/security-property-fuzz.test.js'
       - '.github/workflows/adversarial-fuzz.yml'
       - 'package.json'
+      - 'pnpm-lock.yaml'
   schedule:
     - cron: '17 4 * * *'
   workflow_dispatch:
@@ -31,6 +33,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
+      - name: Install fuzz harness dependencies
+        run: corepack pnpm install --frozen-lockfile --ignore-scripts
+      - name: Property fuzz deterministic security boundaries
+        env:
+          DVR_PROPERTY_FUZZ_CASES: '1000'
+          DVR_PROPERTY_FUZZ_SEED: '1592639710'
+        run: corepack pnpm test:property-fuzz
       - name: Fuzz deterministic regression corpus
         env:
           DVR_FUZZ_CASES: '500'
@@ -44,6 +53,12 @@ jobs:
           seed="$(node --input-type=module -e 'const id = BigInt(process.env.GITHUB_RUN_ID); console.log(Number(id & 0xffffffffn))')"
           echo "seed=$seed" >> "$GITHUB_OUTPUT"
           printf 'Rotating fuzz seed: `%s`\n' "$seed" >> "$GITHUB_STEP_SUMMARY"
+      - name: Property fuzz rotating security boundaries
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          DVR_PROPERTY_FUZZ_CASES: '3000'
+          DVR_PROPERTY_FUZZ_SEED: ${{ steps.exploration_seed.outputs.seed }}
+        run: corepack pnpm test:property-fuzz
       - name: Fuzz rotating exploration corpus
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
