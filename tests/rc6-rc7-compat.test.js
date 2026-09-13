@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { Config as EntryConfig, SETTINGS_CONTRACT_REVISION } from '../entry.js'
 import { classifyWebModulesRows } from '../scripts/dsh-web-modules-overlay-contract.mjs'
+import { classifyWebConnectionRows } from '../scripts/dsh-web-connection-overlay-contract.mjs'
 import {
   attachmentContextForContract,
   hasBatchAttachmentContract,
@@ -214,11 +215,46 @@ test('web client modules wait for the official webServer carrier across supporte
   )
 })
 
+test('connection/webServer overlay lifecycle classifies required, retire-ready, and dangerous Host drift', () => {
+  const base = { id: 'connection', name: '@deepseek-ai/dsh-client-connection', inject: ['webRuntime'] }
+  assert.equal(classifyWebConnectionRows([base]).status, 'shim-required')
+  assert.equal(
+    classifyWebConnectionRows([{ ...base, inject: ['webRuntime', 'webServer'] }]).status,
+    'retire-ready',
+  )
+  assert.equal(
+    classifyWebConnectionRows([{ ...base, inject: ['newCarrier', 'webRuntime', 'webServer'] }]).status,
+    'retire-ready',
+  )
+  assert.equal(
+    classifyWebConnectionRows([{ ...base, inject: ['webRuntime', 'newCarrier'] }]).status,
+    'dangerous-drift',
+  )
+  assert.equal(
+    classifyWebConnectionRows([{ ...base, inject: ['webServer'] }]).status,
+    'dangerous-drift',
+  )
+  assert.equal(
+    classifyWebConnectionRows([{ ...base, name: '@deepseek-ai/renamed-connection' }]).status,
+    'dangerous-drift',
+  )
+  assert.equal(classifyWebConnectionRows([]).status, 'dangerous-drift')
+})
+
+test('web connection provider waits for both runtime trust and the Web route carrier', async () => {
+  const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  assert.match(
+    patch,
+    /- id: connection\s+name: '@deepseek-ai\/dsh-client-connection'\s+inject: \[webRuntime, webServer\]/,
+  )
+})
+
 test('release evidence gates keep stable and preview contracts capability-scoped', async () => {
-  const [hostGate, browserGate, sourceGate] = await Promise.all([
+  const [hostGate, browserGate, sourceGate, upstreamOverlayWatch] = await Promise.all([
     readFile(new URL('../.github/workflows/adversarial-compat-hardening.yml', import.meta.url), 'utf8'),
     readFile(new URL('../.github/workflows/dsh-preview-browser-smoke.yml', import.meta.url), 'utf8'),
     readFile(new URL('../.github/workflows/dsh-alpha-source-contract.yml', import.meta.url), 'utf8'),
+    readFile(new URL('../.github/workflows/dsh-upstream-web-modules-watch.yml', import.meta.url), 'utf8'),
   ])
 
   assert.match(hostGate, /dsh: \['0\.1\.5-rc\.2', '0\.1\.5-alpha\.2'\]/)
@@ -243,6 +279,13 @@ test('release evidence gates keep stable and preview contracts capability-scoped
   assert.doesNotMatch(sourceGate, /ref:\s*\$\{\{\s*matrix\./)
   assert.doesNotMatch(sourceGate, /cache:\s*pnpm/)
   assert.doesNotMatch(sourceGate, /cache-dependency-path:/)
+  assert.match(sourceGate, /DSH_CONNECTION_WEBSERVER_EXPECTED: shim-required/)
+  assert.match(sourceGate, /scripts\/dsh-web-connection-overlay-contract\.mjs/)
+  assert.match(upstreamOverlayWatch, /name: DSH upstream Web compatibility overlay watch/)
+  assert.match(upstreamOverlayWatch, /DSH_MODULES_WEBSERVER_EXPECTED: shim-required/)
+  assert.match(upstreamOverlayWatch, /DSH_CONNECTION_WEBSERVER_EXPECTED: shim-required/)
+  assert.match(upstreamOverlayWatch, /scripts\/dsh-web-modules-overlay-contract\.mjs/)
+  assert.match(upstreamOverlayWatch, /scripts\/dsh-web-connection-overlay-contract\.mjs/)
   for (const os of ['ubuntu-latest', 'macos-latest', 'windows-latest']) {
     assert.equal((sourceGate.match(new RegExp(`os: ${os}`, 'g')) ?? []).length, 3)
   }

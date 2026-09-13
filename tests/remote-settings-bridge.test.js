@@ -176,24 +176,23 @@ test('bridge remains behind the DSH trusted-host carrier fence', () => {
   const ctx = {
     inject(deps, callback) {
       if (deps[0] === 'settings' && deps[1] === 'connection') {
+        // The caller still declares every service it directly consumes. The
+        // DSH Connection provider's own webServer activation is a separate
+        // bundle contract; do not fake Cordis Service shadow semantics here.
         assert.deepEqual(deps, ['settings', 'connection', 'webServer'])
-        const declared = new Set(deps)
-        const remoteCtx = {
+        callback({
           settings: makeSettings().settings,
           webServer: { register() { return () => {} } },
-          effect(factory) { factory() },
-        }
-        remoteCtx.connection = {
-          rpc: {
-            handle(channel, _handler, options) {
-              if (!declared.has('webServer')) throw new Error('cannot get property "webServer" without inject')
-              remoteCtx.webServer.register({ kind: 'prefix', path: channel })
-              registrations.push([channel, options])
-              return () => {}
+          connection: {
+            rpc: {
+              handle(channel, _handler, options) {
+                registrations.push([channel, options])
+                return () => {}
+              },
             },
           },
-        }
-        callback(remoteCtx)
+          effect(factory) { factory() },
+        })
         return
       }
       if (deps.length === 1 && deps[0] === 'webServer') {
