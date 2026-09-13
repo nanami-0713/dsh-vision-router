@@ -139,6 +139,7 @@ function liveWrapperHarness({ initialProvider = 'deepseek-official', native = fa
       async listModels(provider) {
         return [
           { provider, id: 'deepseek-flash', name: 'DeepSeek-V41-Flash', inputModalities: ['text', 'image'] },
+          { provider, id: 'deepseek-v4.1-flash-expires-on-0910', name: 'DeepSeek V4.1 Flash', inputModalities: ['text'] },
           { provider, id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', inputModalities: ['text'] },
           { provider, id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', inputModalities: ['text'] },
         ]
@@ -191,9 +192,10 @@ function liveWrapperHarness({ initialProvider = 'deepseek-official', native = fa
   }
   const wrapped = contextWithDelegatedReplay(ctx)
 
-  // Emulate the core wrapper's legacy stale provider/reasoning caches and its
-  // old metadata dependence on textProvider. The entry-layer boundary must
-  // keep the public DeepSeek identity true at both metadata and network time.
+  // Emulate a stale/regressed core wrapper with provider/reasoning caches and
+  // old metadata dependence on textProvider. The entry-layer boundary remains
+  // defense in depth and must keep the public DeepSeek identity true at both
+  // metadata and network time even after the core itself is fixed.
   let staleReasoningEffort
   const coreWrapper = {
     async listModels() {
@@ -262,11 +264,16 @@ test('main DeepSeek auto-vision wrapper never follows an arbitrary live textProv
   ])
 })
 
-test('issue #469: main wrapper mirrors the live official DeepSeek catalog even when textProvider is a relay', async () => {
+test('issues #469/#479: main wrapper mirrors the live official DeepSeek catalog even when textProvider is a relay', async () => {
   const harness = liveWrapperHarness({ initialProvider: 'relay-openai' })
   const adapter = harness.adapter()
   const listed = await adapter.listModels('deepseek-vision')
-  assert.deepEqual(listed.map((model) => model.id), ['deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash'])
+  assert.deepEqual(listed.map((model) => model.id), [
+    'deepseek-flash',
+    'deepseek-v4.1-flash-expires-on-0910',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+  ])
   assert.ok(listed.every((model) => model.provider === 'deepseek-vision'))
   assert.ok(listed.every((model) => model.inputModalities.includes('image')))
 
@@ -278,6 +285,13 @@ test('issue #469: main wrapper mirrors the live official DeepSeek catalog even w
   assert.equal(stableDefault.provider, 'deepseek-vision')
   assert.equal(stableDefault.id, 'deepseek-flash')
   assert.deepEqual(stableDefault.inputModalities, ['text', 'image'])
+  const newOfficial = await adapter.resolveModel(
+    'deepseek-vision',
+    'deepseek-v4.1-flash-expires-on-0910',
+  )
+  assert.equal(newOfficial.provider, 'deepseek-vision')
+  assert.equal(newOfficial.id, 'deepseek-v4.1-flash-expires-on-0910')
+  assert.deepEqual(newOfficial.inputModalities, ['text', 'image'])
   assert.equal(adapter.providerRetryPolicy('deepseek-vision'), 'deepseek-retry')
 })
 

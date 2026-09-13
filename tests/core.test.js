@@ -1210,7 +1210,7 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
   const adapters = new Map() // provider -> adapter
   const registrations = new Map() // provider -> { adapter, retryPolicy }
   const directories = [] // configurable-provider registrations (directory seam)
-  const captured = { skills: [], tools: [], on: new Map() }
+  const captured = { skills: [], tools: [], streamCalls: [], on: new Map() }
   // The mutable user document and the watch seam: tests flip config0 fields
   // and fire the watchers to simulate a settings-card save.
   const userDoc = config0
@@ -1424,7 +1424,8 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
         }
         return hit.adapter.resolveModel(provider, model)
       },
-      stream: async function* () {
+      stream: async function* (options) {
+        captured.streamCalls.push(options)
         yield { type: 'finish', reason: { kind: 'stop' } }
       },
     },
@@ -2436,6 +2437,56 @@ test('apply falls back to the visible wrapper when the stock route is still acti
   const wrapped = await wrapper.listModels('deepseek-vision')
   assert.deepEqual(wrapped.map((m) => m.id), ['deepseek-v4-flash', 'deepseek-v4-pro'])
   assert.deepEqual(wrapped[0].inputModalities, ['text', 'image'])
+})
+
+test('issue #479: main DeepSeek wrapper mirrors the live official catalog and ignores relay textProvider', async () => {
+  const { ctx, adapters, captured } = mockHarnessCtx({
+    stockRoute: true,
+    opencodeGo: true,
+    config0: { textProvider: { provider: 'opencode-go', model: 'qwen3.6-plus' } },
+  })
+  const official = adapters.get('deepseek-official')
+  official.listModels = async (provider) => [
+    { provider, id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: ['text'] },
+    { provider, id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+    {
+      provider,
+      id: 'deepseek-v4.1-flash-expires-on-0910',
+      name: 'DeepSeek-V4.1-Flash',
+      inputModalities: ['text'],
+    },
+  ]
+
+  apply(ctx, Config({}))
+  const wrapper = adapters.get('deepseek-vision')
+  const listed = await wrapper.listModels('deepseek-vision')
+  assert.deepEqual(listed.map((model) => model.id), [
+    'deepseek-v4-flash',
+    'deepseek-v4-pro',
+    'deepseek-v4.1-flash-expires-on-0910',
+  ])
+  assert.ok(listed.every((model) => model.provider === 'deepseek-vision'))
+  assert.ok(listed.every((model) => model.inputModalities.includes('image')))
+  assert.equal(wrapper.providerRetryPolicy('deepseek-vision'), 'retry')
+
+  const resolved = await wrapper.resolveModel(
+    'deepseek-vision',
+    'deepseek-v4.1-flash-expires-on-0910',
+  )
+  assert.equal(resolved.id, 'deepseek-v4.1-flash-expires-on-0910')
+  assert.equal(resolved.provider, 'deepseek-vision')
+  await assert.rejects(
+    wrapper.resolveModel('deepseek-vision', 'relay-only-model'),
+    /not in the live official catalog/,
+  )
+
+  for await (const _chunk of wrapper.stream({
+    model: 'deepseek-v4.1-flash-expires-on-0910',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+  })) {
+    // drain
+  }
+  assert.equal(captured.streamCalls.at(-1)?.provider, 'deepseek-official')
 })
 
 test('wrapper lists the vision-chain pairs only when whole-turn routing is on', async () => {

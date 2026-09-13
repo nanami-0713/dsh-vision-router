@@ -490,9 +490,10 @@ test('buildInstantLocalMap reserves time for LM Studio when Ollama hangs', async
   }
 })
 
-test('wrapper resolves instant-local settings getters on every stream', async () => {
+test('wrapper resolves live delegate and instant-local getters on every stream', async () => {
   const local = await startFakeOpenAI(async () => chatOk('live settings caption'))
   let instantProvider
+  let delegateProvider = 'text-provider-a'
   const delegated = []
   const ctx = fakeCtx()
   ctx.llm = {
@@ -503,9 +504,7 @@ test('wrapper resolves instant-local settings getters on every stream', async ()
   }
   const adapter = createWrapperStreamBody(ctx, {
     imageMemory: new Map(),
-    // main behavior: delegateProvider is a static string (live reads belong
-    // to the local-vision options only, per the zero-regression review).
-    delegateProvider: 'text-provider',
+    delegateProvider: () => delegateProvider,
     instantLocal: () => instantProvider,
     instantLocalStyle: () => 'plain',
     instantLocalTimeoutMs: () => 1000,
@@ -526,10 +525,12 @@ test('wrapper resolves instant-local settings getters on every stream', async ()
       model: 'live-model',
       apiKeyEnv: '',
     }
+    delegateProvider = 'text-provider-b'
     await run('after-enable')
     assert.equal(local.requests.length, 1)
     assert.match(delegated[1].messages[0].content[0].text, /live settings caption/)
-    assert.equal(delegated[1].provider, 'text-provider')
+    assert.equal(delegated[0].provider, 'text-provider-a')
+    assert.equal(delegated[1].provider, 'text-provider-b')
   } finally {
     await local.close()
   }
