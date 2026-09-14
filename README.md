@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ysr666/dsh-vision-router/releases/tag/v2.1.6"><img src="https://img.shields.io/badge/release-v2.1.6-5B4CF0?style=flat-square" alt="Release v2.1.6" /></a>
+  <a href="https://github.com/ysr666/dsh-vision-router/releases/tag/v2.1.7"><img src="https://img.shields.io/badge/release-v2.1.7-5B4CF0?style=flat-square" alt="Release v2.1.7" /></a>
   <a href="tests"><img src="https://img.shields.io/badge/verified-Node%2022%20%2B%2024-2EA44F?style=flat-square" alt="Verified: Node 22 + 24" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat-square" alt="License: MIT" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D22-339933?style=flat-square&amp;logo=nodedotjs&amp;logoColor=white" alt="Node.js >=22" /></a>
@@ -39,9 +39,9 @@
 <p align="center">💬 <strong>QQ community group: 1105463028</strong></p>
 
 > [!WARNING]
-> 📌 **Announcement (v2.1.6)**
+> 📌 **Announcement (v2.1.7)**
 >
-> **v2.1.6:** Advances exact stable support to DSH `0.1.5-rc.2`, fixes the remote-settings `webServer` startup error, and completes Host-first proxy isolation, lifecycle, redirect-boundary, HTTP CONNECT, and SOCKS5 hardening without raising the rc.8 Host floor. [What’s new →](docs/releases/v2.1.6.md)
+> **v2.1.7:** Hardens remote/local capability boundaries, long-lived browser and persistent-cache resource ownership, DSH 0.1.5 connection/catalog compatibility, property-based fuzzing, and release provenance without raising the rc.8 Host floor. [What’s new →](docs/releases/v2.1.7.md)
 
 <p align="center">
   <img src="assets/vision-demo.gif" width="640" alt="Demo: paste an image, the agent locates the send button with vision_ground / vision_crop / vision_pixel_diff and answers with coordinates" />
