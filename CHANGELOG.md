@@ -5,6 +5,22 @@ Bilingual (Chinese + English) release notes for every version — the GitHub Rel
 
 ## Unreleased
 
+## v2.1.7
+
+### 安全与稳定性 / Security & stability
+
+- **远程设置与本机能力边界加固**：测试连接等有副作用的 Web 能力现在保持本机专属；远程可修改设置增加总大小、字符串、节点与嵌套深度预算，复杂模型列表也在运行时统一限界。
+- **Remote settings and local-capability hardening**: side-effecting Web capabilities such as connection probes remain local-only; remotely mutable settings now have aggregate, string, node-count, and nesting budgets, with complex model lists bounded again at runtime.
+- **长生命周期资源收敛**：`vision_present` 的 Blob URL / pending read 采用有界生命周期；image verdict、background stop、capability profile 与 live-model provider 状态在运行时即执行淘汰，不再只在落盘时裁剪。
+- **Long-lived resource convergence**: `vision_present` Blob URLs and pending reads now have bounded ownership, while image verdicts, background stops, capability profiles, and live-model provider state evict in live memory instead of only when persisted.
+
+### 兼容性与供应链 / Compatibility & supply chain
+
+- **DSH 0.1.5 兼容补强**：保留 `connection -> webServer` 依赖，收敛实时 DeepSeek wrapper catalog 权威，并继续维持公开最低 Host `0.1.0-rc.8`。
+- **DSH 0.1.5 compatibility**: retains the `connection -> webServer` dependency, converges live DeepSeek wrapper catalog authority, and keeps the public Host floor at `0.1.0-rc.8`.
+- **测试与发布完整性**：新增 `fast-check` property-based fuzzing，强化 adversarial fuzz；Release workflow 增加 exact-main、不可变 tag / artifact、npm Trusted Publishing、SLSA provenance 与 Actions source policy 验证。
+- **Testing and release integrity**: adds `fast-check` property-based fuzzing and broader adversarial coverage; the Release workflow now hardens exact-main identity, immutable tag/artifact handling, npm Trusted Publishing, SLSA provenance, and Actions source policy.
+
 ## v2.1.6
 
 ### 修复 / Fixes
