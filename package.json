@@ -81,7 +81,11 @@
     "test:grounding": "node --test tests/grounding-coordinate-frame.test.js tests/grounding-coordinate-runtime.test.js tests/vision-capability-grounding-proof-contract.test.js",
     "test:stress": "node scripts/image-resource-stress.mjs && node --test tests/large-image-resource-integration.test.js tests/resource-retention-lifecycle.test.js",
     "test:adversarial-fuzz": "node scripts/security-adversarial-fuzz.mjs",
-    "test:property-fuzz": "node --test tests/security-property-fuzz.test.js"
+    "test:property-fuzz": "node --test tests/security-property-fuzz.test.js",
+    "test:quality": "node --test tests/vision-quality-round2-baseline.test.js",
+    "quality:round2:render": "node quality/vision-round2/render-fixtures.mjs",
+    "quality:round2:template": "node quality/vision-round2/make-run-template.mjs",
+    "quality:round2:report": "node quality/vision-round2/report-results.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["sharp"]

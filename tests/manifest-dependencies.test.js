@@ -34,6 +34,7 @@ const DEFAULT_TEST_IMPORTS = Object.freeze([
   'tests/settings-ia-targeted-adversarial.test.js',
   'tests/v2-release-acceptance-regressions.test.js',
   'tests/vision-turn-budget-client-prelude.test.js',
+  'tests/vision-quality-round2-baseline.test.js',
   'tests/wrapper-scope-client-prelude.test.js',
 ])
 
