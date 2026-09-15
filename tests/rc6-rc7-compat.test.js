@@ -263,19 +263,23 @@ test('release evidence gates keep stable and preview contracts capability-scoped
   assert.match(browserGate, /dsh: 0\.1\.5-rc\.1[\s\S]*?mixedGenericFiles: false/)
   assert.match(browserGate, /dsh: 0\.1\.5-rc\.2[\s\S]*?mixedGenericFiles: true/)
   assert.match(browserGate, /dsh: 0\.1\.5-alpha\.2[\s\S]*?mixedGenericFiles: true/)
+  assert.match(browserGate, /dsh: 0\.1\.6-alpha\.1[\s\S]*?mixedGenericFiles: true/)
   assert.match(browserGate, /if: matrix\.mixedGenericFiles/)
   assert.match(browserGate, /ref: 183f08e9c6dde7e36cd2318eaee70b0da08fb35e/)
   assert.match(browserGate, /ref: fb2c4b9e698e30edb738bca4cf0618587db7d203/)
   assert.match(browserGate, /ref: dsh-v0\.1\.5-alpha\.2/)
+  assert.match(browserGate, /ref: 0a15e36e7f82b6ed45af6fa9759f29b40dcd965d/)
   assert.doesNotMatch(browserGate, /ref:\s*\$\{\{\s*matrix\./)
 
   assert.match(sourceGate, /name: DSH exact source contract/)
   assert.equal((sourceGate.match(/dsh: 0\.1\.5-rc\.1/g) ?? []).length, 3)
   assert.equal((sourceGate.match(/dsh: 0\.1\.5-rc\.2/g) ?? []).length, 3)
   assert.equal((sourceGate.match(/dsh: 0\.1\.5-alpha\.2/g) ?? []).length, 3)
+  assert.equal((sourceGate.match(/dsh: 0\.1\.6-alpha\.1/g) ?? []).length, 3)
   assert.equal((sourceGate.match(/183f08e9c6dde7e36cd2318eaee70b0da08fb35e/g) ?? []).length, 2)
   assert.equal((sourceGate.match(/fb2c4b9e698e30edb738bca4cf0618587db7d203/g) ?? []).length, 2)
   assert.equal((sourceGate.match(/b2e3b2a0125854567a4a5fcba75782e42fe84901/g) ?? []).length, 2)
+  assert.equal((sourceGate.match(/0a15e36e7f82b6ed45af6fa9759f29b40dcd965d/g) ?? []).length, 2)
   assert.doesNotMatch(sourceGate, /ref:\s*\$\{\{\s*matrix\./)
   assert.doesNotMatch(sourceGate, /cache:\s*pnpm/)
   assert.doesNotMatch(sourceGate, /cache-dependency-path:/)
@@ -287,7 +291,7 @@ test('release evidence gates keep stable and preview contracts capability-scoped
   assert.match(upstreamOverlayWatch, /scripts\/dsh-web-modules-overlay-contract\.mjs/)
   assert.match(upstreamOverlayWatch, /scripts\/dsh-web-connection-overlay-contract\.mjs/)
   for (const os of ['ubuntu-latest', 'macos-latest', 'windows-latest']) {
-    assert.equal((sourceGate.match(new RegExp(`os: ${os}`, 'g')) ?? []).length, 3)
+    assert.equal((sourceGate.match(new RegExp(`os: ${os}`, 'g')) ?? []).length, 4)
   }
 })
 
