@@ -123,6 +123,12 @@ jobs:
             dsh: 0.1.5-alpha.2
           - os: windows-latest
             dsh: 0.1.5-alpha.2
+          - os: ubuntu-latest
+            dsh: 0.1.6-alpha.1
+          - os: macos-latest
+            dsh: 0.1.6-alpha.1
+          - os: windows-latest
+            dsh: 0.1.6-alpha.1
     steps:
       - name: Checkout Vision Router
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -154,6 +160,15 @@ jobs:
         with:
           repository: deepseek-ai/deepseek-harness
           ref: b2e3b2a0125854567a4a5fcba75782e42fe84901
+          persist-credentials: false
+          path: dsh-exact
+
+      - name: Checkout exact DSH 0.1.6-alpha.1 source
+        if: matrix.dsh == '0.1.6-alpha.1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: 0a15e36e7f82b6ed45af6fa9759f29b40dcd965d
           persist-credentials: false
           path: dsh-exact
 
@@ -199,6 +214,15 @@ jobs:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-exact
           DSH_EXPECTED_VERSION: 0.1.5-alpha.2
           DSH_EXPECTED_COMMIT: b2e3b2a0125854567a4a5fcba75782e42fe84901
+        run: pnpm exec tsx ../dvr/scripts/dsh-alpha-source-contract.mjs
+
+      - name: Run Vision Router against exact 0.1.6-alpha.1 source contracts
+        if: matrix.dsh == '0.1.6-alpha.1'
+        working-directory: dsh-exact
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-exact
+          DSH_EXPECTED_VERSION: 0.1.6-alpha.1
+          DSH_EXPECTED_COMMIT: 0a15e36e7f82b6ed45af6fa9759f29b40dcd965d
         run: pnpm exec tsx ../dvr/scripts/dsh-alpha-source-contract.mjs
 
       - name: Verify Host proxy egress authority for Vision Router
