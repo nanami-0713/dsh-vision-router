@@ -90,6 +90,30 @@ if (expectCurrent) {
   registration()
   assert.equal(ctx.llm.listProviders().some((item) => item.id === 'vision-router-p0-b'), false, 'registration disposer must clean up the route')
 
+  const sessionEntry = requireFromHost.resolve('@deepseek-ai/dsh-session')
+  const sessionApi = await import(pathToFileURL(sessionEntry).href)
+  assert.equal(typeof sessionApi.Session?.create, 'function', 'current DSH Session.create() must be exported')
+  assert.equal(typeof plugin.sessionSurfaceReplacementIntent, 'function', 'plugin must expose its Session surface contract adapter')
+  assert.equal(typeof llm.createUserMessage, 'function', 'current DSH createUserMessage() must be exported')
+  const surfaceSession = sessionApi.Session.create(sessionApi.SessionId('vision-router-surface-contract'))
+  const firstSurface = surfaceSession.append(
+    'user/message',
+    llm.createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'before' }] }),
+    { surfaceOp: 'append' },
+  )
+  const replacementIntent = plugin.sessionSurfaceReplacementIntent(surfaceSession, firstSurface.seq)
+  assert.ok(replacementIntent, 'current Session format must have a reviewed replacement contract')
+  const replacementSurface = surfaceSession.append(
+    'user/message',
+    llm.createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'after' }] }),
+    replacementIntent,
+  )
+  assert.deepEqual(
+    [...surfaceSession.surface.nodes],
+    [replacementSurface.seq],
+    'real DSH Session validator must accept the plugin replacement intent and shadow the original node',
+  )
+
   const settingsEntry = requireFromHost.resolve('@deepseek-ai/dsh-settings')
   const settings = await import(pathToFileURL(settingsEntry).href)
   assert.equal(typeof settings.default, 'function', 'DSH SettingsProvider must be exported')

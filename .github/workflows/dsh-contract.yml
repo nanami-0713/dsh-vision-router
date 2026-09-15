@@ -78,6 +78,7 @@ jobs:
             sharp: '0.35.3'
           }
           if (process.env.EXPECT_CURRENT === 'true') {
+            dependencies['@deepseek-ai/dsh-session'] = v
             dependencies['@deepseek-ai/dsh-tools'] = v
             dependencies['@deepseek-ai/dsh-system-prompt'] = v
             dependencies['@deepseek-ai/dsh-llm-pi-ai'] = v
@@ -111,6 +112,7 @@ jobs:
         if: matrix.current == 'true'
         run: |
           pnpm test:contract
+          node --test tests/session-vision-index.test.js
           node --test tests/native-image-coexistence.test.js
       - name: Verify current pi-ai OpenCode Go session wire
         if: matrix.current == 'true'
