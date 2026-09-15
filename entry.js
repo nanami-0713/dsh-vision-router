@@ -55,6 +55,7 @@ core.Config.set(
 )
 
 export * from './index.js'
+export { sessionSurfaceReplacementIntent } from './lib/session-surface-compat.js'
 export {
   attachmentContextForContract,
   ensureVisionAttachmentAdmissionPolicy,
