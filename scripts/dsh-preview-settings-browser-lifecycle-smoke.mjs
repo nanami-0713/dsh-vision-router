@@ -105,7 +105,7 @@ async function openStrategyCard(root) {
 }
 
 async function strategyControls(card) {
-  const structuredRow = card.locator('.vr-field').filter({ hasText: 'Structured pre-scan (1+x, experimental)' }).first()
+  const structuredRow = card.locator('.vr-ia-toggle-row').filter({ hasText: 'Structured pre-scan (1+x)' }).first()
   await structuredRow.waitFor({ state: 'visible', timeout: 10_000 })
   const structured = structuredRow.locator('input[type="checkbox"]').first()
   await structured.waitFor({ state: 'attached', timeout: 10_000 })
