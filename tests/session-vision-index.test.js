@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import { sessionSurfaceReplacementIntent } from '../lib/session-surface-compat.js'
 import { createSessionVisionStateStore } from '../lib/session-vision-state.js'
 import {
   createSessionVisionIndex,
@@ -62,9 +63,10 @@ function coreStub() {
   }
 }
 
-function sessionWith(events = [], nodes = events.map((_, index) => index)) {
+function sessionWith(events = [], nodes = events.map((_, index) => index), version = 0) {
   return {
     id: `session-${Math.random()}`,
+    header: { version },
     events: [...events],
     surface: { nodes: [...nodes] },
     appended: [],
@@ -73,7 +75,10 @@ function sessionWith(events = [], nodes = events.map((_, index) => index)) {
       this.events.push({ type, data })
       this.appended.push({ type, data, options })
       if (options?.surfaceOp?.op === 'replace') {
-        const at = this.surface.nodes.indexOf(options.surfaceOp.start)
+        const start = this.header.version === 3
+          ? options.surfaceOp.startSeq
+          : options.surfaceOp.start
+        const at = this.surface.nodes.indexOf(start)
         if (at >= 0) this.surface.nodes[at] = seq
       } else {
         this.surface.nodes.push(seq)
@@ -82,6 +87,24 @@ function sessionWith(events = [], nodes = events.map((_, index) => index)) {
     },
   }
 }
+
+test('surface replacement intent follows Session format rather than DSH package version', () => {
+  assert.deepEqual(sessionSurfaceReplacementIntent({ header: { version: 0 } }, 7), {
+    surfaceOp: { op: 'replace', start: 7, end: 7 },
+    sourceEventSeqs: [7],
+  })
+  assert.deepEqual(sessionSurfaceReplacementIntent({ header: { version: 2 } }, 7), {
+    surfaceOp: { op: 'replace', start: 7, end: 7 },
+    sourceEventSeqs: [7],
+  })
+  assert.deepEqual(sessionSurfaceReplacementIntent({ header: { version: 3 } }, 7), {
+    surfaceOp: { op: 'replace', startSeq: 7, endSeq: 7 },
+    sourceEventSeqs: [7],
+  })
+  assert.equal(sessionSurfaceReplacementIntent({ header: { version: 4 } }, 7), undefined)
+  assert.equal(sessionSurfaceReplacementIntent({}, 7), undefined)
+  assert.throws(() => sessionSurfaceReplacementIntent({ header: { version: 3 } }, -1), /non-negative safe integer/)
+})
 
 test('state-store factories are independent and expose no implicit current owner', () => {
   const first = createSessionVisionStateStore()
@@ -126,7 +149,7 @@ test('bounded attachment eviction recovers only through SessionVisionIndex witho
   assert.equal(store.stateStats(session).attachments, 1)
 })
 
-test('tool-result surface repair is incremental and persists only Host replacement events', async () => {
+test('tool-result surface repair is incremental and persists legacy Host replacement events', async () => {
   const store = createSessionVisionStateStore()
   const session = sessionWith([
     { type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } },
@@ -144,6 +167,36 @@ test('tool-result surface repair is incremental and persists only Host replaceme
 
   assert.equal(await index.repairToolResultSurface(session), 0)
   assert.equal(session.appended.length, 1, 'already-scanned surface nodes must not be rewritten twice')
+})
+
+test('tool-result surface repair emits the v3 replacement contract on current Sessions', async () => {
+  const store = createSessionVisionStateStore()
+  const session = sessionWith([
+    { type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } },
+  ], [0], 3)
+  const index = createSessionVisionIndex({ stateStore: store, core: coreStub() })
+
+  assert.equal(await index.repairToolResultSurface(session), 1)
+  assert.deepEqual(session.appended[0].options, {
+    surfaceOp: { op: 'replace', startSeq: 0, endSeq: 0 },
+    sourceEventSeqs: [0],
+  })
+})
+
+test('unknown future Session surface formats skip durable repair without breaking the turn', async () => {
+  const warnings = []
+  const session = sessionWith([
+    { type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } },
+  ], [0], 4)
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    logger: { warn: (...args) => warnings.push(args) },
+  })
+
+  assert.equal(await index.repairToolResultSurface(session), 0)
+  assert.equal(session.appended.length, 0)
+  assert.equal(warnings.length, 1)
 })
 
 test('guard-stop repair is incremental and preserves the existing user/message replacement contract', async () => {
