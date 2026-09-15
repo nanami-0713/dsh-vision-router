@@ -35,6 +35,11 @@ jobs:
             batch: 'true'
             dimension: 'true'
             current: 'true'
+          - name: preview-contract
+            dsh: 0.1.6-alpha.1
+            batch: 'true'
+            dimension: 'true'
+            current: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

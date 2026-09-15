@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { Config as EntryConfig, SETTINGS_CONTRACT_REVISION } from '../entry.js'
+import { eventHasImage } from '../index.js'
 import { classifyWebModulesRows } from '../scripts/dsh-web-modules-overlay-contract.mjs'
 import { classifyWebConnectionRows } from '../scripts/dsh-web-connection-overlay-contract.mjs'
 import {
@@ -170,6 +171,38 @@ test('attachment compatibility follows the batch-attachment seam', () => {
   assert.equal(installs, 1)
 })
 
+test('DSH image/offload bookkeeping is not itself classified as new visual input', () => {
+  const offload = {
+    type: 'image/offload',
+    data: { targets: [{ seq: 3, occurrences: [0, 2] }] },
+  }
+  assert.equal(eventHasImage(offload), false)
+})
+
+test('same-turn tool image events remain detectable after the offload generation', () => {
+  const toolResult = {
+    type: 'tool/result',
+    data: {
+      message: {
+        content: [{
+          type: 'tool-result',
+          content: [{
+            type: 'image',
+            attachment: { attachmentId: 'sha256:0123456789abcdef0123456789abcdef' },
+          }],
+        }],
+      },
+    },
+  }
+  assert.equal(eventHasImage(toolResult), true)
+})
+
+test('mid-turn raw event recovery starts at the captured turn boundary, not historical image events', async () => {
+  const source = await readFile(new URL('../index.js', import.meta.url), 'utf8')
+  assert.match(source, /startIndex:\s*events\.length/)
+  assert.match(source, /for\s*\(let i = state\.startIndex; i < events\.length; i\+\+\)/)
+})
+
 test('settings compatibility keeps the first-class section without requiring a legacy plugin card', async () => {
   const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
   assert.match(source, /name: 'settings\.section'/)
@@ -180,7 +213,7 @@ test('settings compatibility keeps the first-class section without requiring a l
 
 test('manifest publishes the DVR 2.1 rc8 host floor while admitting verified stable and alpha host trains', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  const expectedHostPeerRange = '^0.1.0-rc.8 || ^0.1.1-rc.1 || ^0.1.3-alpha.2 || 0.1.5-alpha.1 || 0.1.5-alpha.2 || 0.1.5-rc.1 || 0.1.5-rc.2'
+  const expectedHostPeerRange = '^0.1.0-rc.8 || ^0.1.1-rc.1 || ^0.1.3-alpha.2 || 0.1.5-alpha.1 || 0.1.5-alpha.2 || 0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1'
   assert.equal(pkg.engines.node, '^22.19.0 || >=24.0.0')
   assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-llm-deepseek'], expectedHostPeerRange)
   assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-anonymous-user-id'], expectedHostPeerRange)
@@ -263,19 +296,23 @@ test('release evidence gates keep stable and preview contracts capability-scoped
   assert.match(browserGate, /dsh: 0\.1\.5-rc\.1[\s\S]*?mixedGenericFiles: false/)
   assert.match(browserGate, /dsh: 0\.1\.5-rc\.2[\s\S]*?mixedGenericFiles: true/)
   assert.match(browserGate, /dsh: 0\.1\.5-alpha\.2[\s\S]*?mixedGenericFiles: true/)
+  assert.match(browserGate, /dsh: 0\.1\.6-alpha\.1[\s\S]*?mixedGenericFiles: true/)
   assert.match(browserGate, /if: matrix\.mixedGenericFiles/)
   assert.match(browserGate, /ref: 183f08e9c6dde7e36cd2318eaee70b0da08fb35e/)
   assert.match(browserGate, /ref: fb2c4b9e698e30edb738bca4cf0618587db7d203/)
   assert.match(browserGate, /ref: dsh-v0\.1\.5-alpha\.2/)
+  assert.match(browserGate, /ref: 0a15e36e7f82b6ed45af6fa9759f29b40dcd965d/)
   assert.doesNotMatch(browserGate, /ref:\s*\$\{\{\s*matrix\./)
 
   assert.match(sourceGate, /name: DSH exact source contract/)
   assert.equal((sourceGate.match(/dsh: 0\.1\.5-rc\.1/g) ?? []).length, 3)
   assert.equal((sourceGate.match(/dsh: 0\.1\.5-rc\.2/g) ?? []).length, 3)
   assert.equal((sourceGate.match(/dsh: 0\.1\.5-alpha\.2/g) ?? []).length, 3)
+  assert.equal((sourceGate.match(/dsh: 0\.1\.6-alpha\.1/g) ?? []).length, 3)
   assert.equal((sourceGate.match(/183f08e9c6dde7e36cd2318eaee70b0da08fb35e/g) ?? []).length, 2)
   assert.equal((sourceGate.match(/fb2c4b9e698e30edb738bca4cf0618587db7d203/g) ?? []).length, 2)
   assert.equal((sourceGate.match(/b2e3b2a0125854567a4a5fcba75782e42fe84901/g) ?? []).length, 2)
+  assert.equal((sourceGate.match(/0a15e36e7f82b6ed45af6fa9759f29b40dcd965d/g) ?? []).length, 2)
   assert.doesNotMatch(sourceGate, /ref:\s*\$\{\{\s*matrix\./)
   assert.doesNotMatch(sourceGate, /cache:\s*pnpm/)
   assert.doesNotMatch(sourceGate, /cache-dependency-path:/)
@@ -287,7 +324,7 @@ test('release evidence gates keep stable and preview contracts capability-scoped
   assert.match(upstreamOverlayWatch, /scripts\/dsh-web-modules-overlay-contract\.mjs/)
   assert.match(upstreamOverlayWatch, /scripts\/dsh-web-connection-overlay-contract\.mjs/)
   for (const os of ['ubuntu-latest', 'macos-latest', 'windows-latest']) {
-    assert.equal((sourceGate.match(new RegExp(`os: ${os}`, 'g')) ?? []).length, 3)
+    assert.equal((sourceGate.match(new RegExp(`os: ${os}`, 'g')) ?? []).length, 4)
   }
 })
 
