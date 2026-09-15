@@ -78,6 +78,7 @@ jobs:
             sharp: '0.35.3'
           }
           if (process.env.EXPECT_CURRENT === 'true') {
+            dependencies['@deepseek-ai/dsh-session'] = v
             dependencies['@deepseek-ai/dsh-tools'] = v
             dependencies['@deepseek-ai/dsh-system-prompt'] = v
             dependencies['@deepseek-ai/dsh-llm-pi-ai'] = v
