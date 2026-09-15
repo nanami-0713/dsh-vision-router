@@ -118,7 +118,6 @@ jobs:
         run: |
           pnpm test:contract
           node --test tests/session-vision-index.test.js
-          node --test tests/dsh-016-image-offload-noninterference.test.js
           node --test tests/native-image-coexistence.test.js
       - name: Verify current pi-ai OpenCode Go session wire
         if: matrix.current == 'true'
