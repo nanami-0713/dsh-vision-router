@@ -59,20 +59,21 @@ test('Doctor text separates public support policy from verification evidence', (
   assert.equal(Object.isFrozen(lines), true)
 })
 
-test('public READMEs separate stable support from preview verification evidence', async () => {
-  const [english, chinese] = await Promise.all([
+test('public READMEs state stable support policy and delegate moving preview evidence to the canonical support document', async () => {
+  const [english, chinese, supportDoc] = await Promise.all([
     readFile(new URL('../README.md', import.meta.url), 'utf8'),
     readFile(new URL('../README.zh.md', import.meta.url), 'utf8'),
+    readFile(new URL('../docs/architecture/dsh-support-window.md', import.meta.url), 'utf8'),
   ])
 
   for (const source of [english, chinese]) {
     assert.match(source, /2\.1\.x/)
     assert.match(source, /0\.1\.0-rc\.8/)
     assert.match(source, /0\.1\.5-rc\.2/)
-    assert.match(source, /0\.1\.6-alpha\.1/)
     assert.match(source, /docs\/architecture\/dsh-support-window\.md/)
     assert.doesNotMatch(source, /0\.1\.2-alpha\.4/)
   }
+  assert.match(supportDoc, /Exact preview evidence \| `0\.1\.6-alpha\.1`/)
 })
 
 
