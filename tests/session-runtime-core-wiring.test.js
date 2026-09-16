@@ -25,6 +25,15 @@ test('runtime composition creates one explicit SessionVisionRuntime and gives th
   )
 })
 
+test('production SessionVisionRuntime receives the bounded Host Session event reader', async () => {
+  const runtime = await source('lib/runtime-composition.js')
+  const compat = await source('lib/dsh-contract-compat.js')
+
+  assert.match(runtime, /createSessionEventReader\(nativeImageCompat\.ctx\)/)
+  assert.match(runtime, /readSessionEvent:\s*createSessionEventReader\(nativeImageCompat\.ctx\)/)
+  assert.match(compat, /query\.readEvent\(\{ sessionId, seq \}\)/)
+})
+
 test('session state and index expose no hidden current owner or lookup monkey-patch seam', async () => {
   const state = await source('lib/session-vision-state.js')
   const index = await source('lib/session-vision-index.js')
@@ -63,6 +72,11 @@ test('core accepts the optional internal runtime without breaking two-argument d
     core,
     /const visionState = sessionVisionRuntime\?\.stateStore \?\? createSessionVisionStateStore\(\{/,
     'core must use the explicit composition-owned store when supplied and preserve the legacy fallback otherwise',
+  )
+  assert.match(
+    core,
+    /readSessionEvent:\s*createSessionEventReader\(ctx\)/,
+    'two-argument direct callers on a full Host must use the same bounded Session event reader',
   )
   assert.match(
     core,

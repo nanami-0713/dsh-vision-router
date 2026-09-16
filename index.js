@@ -95,6 +95,7 @@ import {
   scaleBox,
   scaledDimensions,
 } from './lib/image-resource-governor.js'
+import { createSessionEventReader } from './lib/dsh-contract-compat.js'
 import { createSessionVisionIndex } from './lib/session-vision-index.js'
 import { createSessionVisionStateStore } from './lib/session-vision-state.js'
 import {
@@ -568,6 +569,7 @@ export function apply(ctx, config = {}, runtime = {}) {
     },
     config: () => current(),
     logger: ctx.logger,
+    readSessionEvent: createSessionEventReader(ctx),
   })
   const imageMemory = visionState.descriptionFacade
   // #208 follow-up complete: session-visible paths use scoped memory; only

@@ -153,6 +153,124 @@ test('bounded attachment eviction recovers only through SessionVisionIndex witho
   assert.equal(store.stateStats(session).attachments, 1)
 })
 
+test('supported async surface reader repairs tool results without touching synchronous Session history', async () => {
+  const event = { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } }
+  let syncReads = 0
+  const session = {
+    id: 'async-tool-repair',
+    header: { version: 3 },
+    surface: { nodes: [0] },
+    appended: [],
+    snapshotEvents() { syncReads += 1; throw new Error('deprecated sync history read') },
+    async append(type, data, options) { this.appended.push({ type, data, options }); return 1 },
+  }
+  Object.defineProperty(session, 'events', {
+    get() { syncReads += 1; throw new Error('deprecated bare history read') },
+  })
+  const reads = []
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionEvent: async (_session, seq) => {
+      reads.push(seq)
+      return { supported: true, event }
+    },
+  })
+
+  assert.equal(await index.repairToolResultSurface(session), 1)
+  assert.deepEqual(reads, [0])
+  assert.equal(syncReads, 0)
+  assert.equal(session.appended[0].data.message.sanitized, true)
+})
+
+test('supported async surface reader repairs guard stops without touching synchronous Session history', async () => {
+  const event = {
+    seq: 0,
+    type: 'user/message',
+    data: { id: 'vision-router-structured-guard-stop-1', guardStop: true },
+  }
+  let syncReads = 0
+  const session = {
+    id: 'async-guard-repair',
+    header: { version: 3 },
+    surface: { nodes: [0] },
+    appended: [],
+    snapshotEvents() { syncReads += 1; throw new Error('deprecated sync history read') },
+    async append(type, data, options) { this.appended.push({ type, data, options }); return 1 },
+  }
+  Object.defineProperty(session, 'events', {
+    get() { syncReads += 1; throw new Error('deprecated bare history read') },
+  })
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionEvent: async () => ({ supported: true, event }),
+  })
+
+  assert.equal(await index.repairGuardStopSurface(session), 1)
+  assert.equal(syncReads, 0)
+  assert.equal(session.appended[0].data.expired, true)
+})
+
+test('advertised async reader failure retries the exact failed node and never falls back to sync history', async () => {
+  const events = [
+    { seq: 0, type: 'tool/result', data: { message: { hasImage: false } } },
+    { seq: 1, type: 'tool/result', data: { message: { hasImage: true } } },
+  ]
+  const calls = []
+  let failSecond = true
+  let syncReads = 0
+  const session = {
+    id: 'async-retry',
+    header: { version: 3 },
+    surface: { nodes: [0, 1] },
+    appended: [],
+    snapshotEvents() { syncReads += 1; throw new Error('sync fallback forbidden') },
+    async append(type, data, options) { this.appended.push({ type, data, options }); return 2 },
+  }
+  Object.defineProperty(session, 'events', {
+    get() { syncReads += 1; throw new Error('sync fallback forbidden') },
+  })
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    logger: { warn() {} },
+    readSessionEvent: async (_session, seq) => {
+      calls.push(seq)
+      if (seq === 1 && failSecond) {
+        failSecond = false
+        throw new Error('transient SessionQuery failure')
+      }
+      return { supported: true, event: events[seq] }
+    },
+  })
+
+  assert.equal(await index.repairToolResultSurface(session), 0)
+  assert.deepEqual(calls, [0, 1])
+  assert.equal(syncReads, 0)
+  assert.equal(await index.repairToolResultSurface(session), 1)
+  assert.deepEqual(calls, [0, 1, 1], 'the successful first node must not be re-read')
+  assert.equal(syncReads, 0)
+})
+
+test('explicitly unsupported async capability falls back to the released Session-local reader', async () => {
+  const session = sessionWith([
+    { type: 'tool/result', data: { message: { hasImage: true } } },
+  ])
+  let capabilityChecks = 0
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionEvent: async () => {
+      capabilityChecks += 1
+      return { supported: false }
+    },
+  })
+
+  assert.equal(await index.repairToolResultSurface(session), 1)
+  assert.equal(capabilityChecks, 1)
+})
+
 test('surface repair retries an unread batch instead of advancing its cursor', async () => {
   const store = createSessionVisionStateStore()
   let readable = false

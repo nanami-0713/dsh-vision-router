@@ -7,6 +7,7 @@ import { classifyWebModulesRows } from '../scripts/dsh-web-modules-overlay-contr
 import { classifyWebConnectionRows } from '../scripts/dsh-web-connection-overlay-contract.mjs'
 import {
   attachmentContextForContract,
+  createSessionEventReader,
   hasBatchAttachmentContract,
   installHostSettingsCompatibility,
   installRc7SettingsCompatibility,
@@ -37,6 +38,41 @@ test('contract detection follows the released attachment API, not unrelated LLM 
   assert.equal(hasBatchAttachmentContract(batch), true)
   assert.equal(hasBatchAttachmentContract({ llm: { registerConfigurableProviders() {} } }), false)
   assert.equal(isRc7ContractRuntime, hasBatchAttachmentContract)
+})
+
+test('bounded Session event reader follows the live Host service and keeps missing capability explicit', async () => {
+  let query
+  const ctx = {
+    get(name) { return name === 'sessionQuery' ? query : undefined },
+  }
+  const read = createSessionEventReader(ctx)
+  const session = { id: 'session-reader' }
+
+  assert.deepEqual(await read(session, 3), { supported: false })
+
+  const requests = []
+  query = {
+    async readEvent(request) {
+      requests.push(request)
+      return { target: { seq: request.seq, type: 'user/message', data: { id: 'x' } } }
+    },
+  }
+  assert.deepEqual(await read(session, 3), {
+    supported: true,
+    event: { seq: 3, type: 'user/message', data: { id: 'x' } },
+  })
+  assert.deepEqual(requests, [{ sessionId: 'session-reader', seq: 3 }])
+})
+
+test('bounded Session event reader propagates advertised Host failures instead of masking them', async () => {
+  const failure = new Error('query unavailable')
+  const read = createSessionEventReader({
+    sessionQuery: {
+      async readEvent() { throw failure },
+    },
+  })
+  await assert.rejects(() => read({ id: 'session-reader' }, 0), (error) => error === failure)
+  await assert.rejects(() => read({ id: 'session-reader' }, -1), /non-negative safe integer/)
 })
 
 test('host provider ownership blocks only synthetic official routes', () => {
