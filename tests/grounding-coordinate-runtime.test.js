@@ -86,13 +86,29 @@ function harness(workspace, { attachmentBytes, attachmentId } = {}) {
   }
 }
 
-function execFor(workspace, { events = [], inbox } = {}) {
+function execFor(workspace, { events = [], messages = [], inbox, rejectHistoryReads = false } = {}) {
+  const session = {
+    header: { cwd: workspace },
+    deriveMessages() { return messages },
+  }
+  if (rejectHistoryReads) {
+    session.snapshotEvents = () => { throw new Error('deprecated history read must not be used') }
+    Object.defineProperty(session, 'events', {
+      get() { throw new Error('bare session.events must not be used') },
+    })
+  } else {
+    session.events = events
+  }
   return {
     agent: {
-      session: { header: { cwd: workspace }, events },
+      session,
       ...(inbox === undefined ? {} : { inbox }),
     },
   }
+}
+
+function imageMessage(ref, extra = {}) {
+  return { role: 'user', content: [{ type: 'image', attachment: ref, ...extra }] }
 }
 
 test('vision_ground sends a real 1000x1000 letterbox raster and remaps a wide-image box to source pixels', async () => {
@@ -283,7 +299,7 @@ test('DSH text-only sha256 prefix is canonicalized before grounding and never fa
 
   const result = JSON.parse(await h.registered.get('vision_ground').execute(
     { image: handle, target: 'whole image', annotate: false },
-    execFor(workspace, { events: [{ type: 'user/message', data: { refs: [ref] } }] }),
+    execFor(workspace, { messages: [imageMessage(ref)], rejectHistoryReads: true }),
   ))
   assert.equal(result.width, width)
   assert.equal(result.height, height)
@@ -316,7 +332,7 @@ test('vision_describe canonicalizes projected handles in attachmentIds and paths
       return 'ok'
     },
   })
-  const exec = execFor(workspace, { events: [{ type: 'user/message', data: { refs: [ref] } }] })
+  const exec = execFor(workspace, { messages: [imageMessage(ref)] })
   const question = `what does ${handle} mean as text?`
   assert.equal(
     h.registered.get('vision_describe').execute({
@@ -367,18 +383,48 @@ test('projected handles fail closed on unknown, ambiguous, and cross-session ref
   assert.throws(
     () => h.registered.get('vision_materialize').execute(
       { image: handle },
-      execFor(workspace, { events: [{ data: { refs: [first, second] } }] }),
+      execFor(workspace, { messages: [imageMessage(first), imageMessage(second)] }),
     ),
     /ambiguous attachment handle/,
   )
-  const foreignExec = execFor(workspace, { events: [{ data: { refs: [first] } }] })
+  const foreignExec = execFor(workspace, { messages: [imageMessage(first)] })
   const currentExec = execFor(workspace)
-  assert.ok(foreignExec.agent.session.events.length > 0)
+  assert.equal(foreignExec.agent.session.deriveMessages().length, 1)
   assert.throws(
     () => h.registered.get('vision_materialize').execute({ image: handle }, currentExec),
     /unknown attachment handle/,
   )
   assert.equal(delegated, 0)
+})
+
+test('surface-replaced history cannot authorize a projected handle that is absent from derived messages', () => {
+  const workspace = process.cwd()
+  const prefix = 'feedface'
+  const handle = `sha256:${prefix}`
+  const retired = { attachmentId: `sha256:${prefix}${'d'.repeat(56)}`, mediaType: 'image/png' }
+  const h = harness(workspace)
+  const wrapped = contextWithGroundingCoordinateFrame(h.ctx, {
+    core: fakeCore(),
+    config: {},
+    sessionVisionIndex: {
+      lookupAttachment() {
+        throw new Error('bounded cache must not authorize a ref absent from current derived history')
+      },
+      recordAttachments() {},
+    },
+  })
+  wrapped.tools.register({ name: 'vision_materialize', execute: () => 'should-not-run' })
+
+  assert.throws(
+    () => h.registered.get('vision_materialize').execute(
+      { image: handle },
+      execFor(workspace, {
+        events: [{ type: 'user/message', data: { refs: [retired] } }],
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'replacement without image' }] }],
+      }),
+    ),
+    /unknown attachment handle/,
+  )
 })
 
 test('pending current-session image refs can authorize the same projected handle without global lookup', () => {

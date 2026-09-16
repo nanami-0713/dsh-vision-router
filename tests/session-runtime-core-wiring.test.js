@@ -70,3 +70,10 @@ test('core accepts the optional internal runtime without breaking two-argument d
     'two-argument direct callers must keep the same Session behavior through the local index fallback',
   )
 })
+
+test('projected attachment handles authorize from derived history without deprecated Session event reads', async () => {
+  const runtime = await source('lib/vision-attachment-handle-runtime.js')
+  assert.match(runtime, /session\.deriveMessages\(\)/)
+  assert.doesNotMatch(runtime, /snapshotEvents\s*\(/)
+  assert.doesNotMatch(runtime, /session\?*\.events|session\.events/)
+})
