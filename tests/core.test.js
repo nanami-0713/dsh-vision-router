@@ -1959,6 +1959,114 @@ function legacyRoutingHarness(configOverrides = {}) {
   }
 }
 
+
+function modernMidTurnRoutingHarness(tailSteps) {
+  const config = {
+    provider: 'openrouter',
+    providers: [{ provider: 'openrouter', model: 'qwen/qwen3-vl-235b-a22b-instruct' }],
+    routing: true,
+    chainRoute: '',
+    autoActivateOnImage: false,
+  }
+  const { ctx, captured } = mockHarnessCtx({ config0: config })
+  let syncReads = 0
+  const session = {
+    id: 'modern-midturn-session',
+    snapshotEvents() { syncReads += 1; throw new Error('deprecated sync history read') },
+  }
+  Object.defineProperty(session, 'events', {
+    get() { syncReads += 1; throw new Error('deprecated bare history read') },
+  })
+  const tailCalls = []
+  let tailIndex = 0
+  const sessionEventTailReader = async (_session, anchorSeq, options) => {
+    tailCalls.push({ anchorSeq, options })
+    const step = tailSteps[tailIndex++]
+    if (step instanceof Error) throw step
+    return step
+  }
+  apply(ctx, Config(config), {
+    sessionTurnResolver: {
+      turnOf: () => 7,
+      eventAnchorOf: () => 5,
+    },
+    sessionEventTailReader,
+  })
+  const payload = {
+    agent: { session },
+    turn: 7,
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'continue' }] }],
+  }
+  return {
+    payload,
+    preStep: captured.on.get('agent/pre-step'),
+    request: captured.on.get('agent/request'),
+    tailCalls,
+    syncReads: () => syncReads,
+  }
+}
+
+test('agent/request detects a modern mid-turn tool image through async Session tail reads only', async () => {
+  const toolImage = {
+    seq: 7,
+    type: 'tool/result',
+    data: {
+      message: {
+        content: [{
+          type: 'tool-result',
+          content: [{ type: 'image', attachment: { attachmentId: 'sha256:0123456789abcdef0123456789abcdef' } }],
+        }],
+      },
+    },
+  }
+  const harness = modernMidTurnRoutingHarness([
+    { supported: true, events: [], capturedThroughSeq: 6, truncated: false },
+    { supported: true, events: [toolImage], capturedThroughSeq: 7, truncated: false },
+  ])
+  await harness.preStep(harness.payload, async () => ({ messages: harness.payload.messages }))
+  const routed = await harness.request(harness.payload, async () => ({
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  }))
+  assert.equal(routed.provider, 'openrouter')
+  assert.equal(routed.model, 'qwen/qwen3-vl-235b-a22b-instruct')
+  assert.equal(harness.syncReads(), 0)
+  assert.deepEqual(harness.tailCalls, [
+    { anchorSeq: 5, options: { collect: false } },
+    { anchorSeq: 6, options: undefined },
+  ])
+})
+
+test('agent/request keeps a modern text-only turn on the text route after an empty async tail scan', async () => {
+  const harness = modernMidTurnRoutingHarness([
+    { supported: true, events: [], capturedThroughSeq: 6, truncated: false },
+    { supported: true, events: [{ seq: 7, type: 'step/start', data: {} }], capturedThroughSeq: 7, truncated: false },
+  ])
+  await harness.preStep(harness.payload, async () => ({ messages: harness.payload.messages }))
+  const routed = await harness.request(harness.payload, async () => ({
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  }))
+  assert.equal(routed.provider, 'deepseek-official')
+  assert.equal(routed.model, 'deepseek-v4-pro')
+  assert.equal(harness.syncReads(), 0)
+})
+
+test('agent/request routes conservatively to vision when an advertised modern tail read fails', async () => {
+  const harness = modernMidTurnRoutingHarness([
+    { supported: true, events: [], capturedThroughSeq: 6, truncated: false },
+    new Error('SessionQuery transient failure'),
+  ])
+  await harness.preStep(harness.payload, async () => ({ messages: harness.payload.messages }))
+  const routed = await harness.request(harness.payload, async () => ({
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  }))
+  assert.equal(routed.provider, 'openrouter')
+  assert.equal(routed.model, 'qwen/qwen3-vl-235b-a22b-instruct')
+  assert.equal(harness.syncReads(), 0)
+})
+
 test('agent/request legacy routing sends image turns to the first chain pair', async () => {
   const { payload, preStep, request } = legacyRoutingHarness()
   assert.equal(typeof preStep, 'function')

@@ -8,6 +8,7 @@ import { classifyWebConnectionRows } from '../scripts/dsh-web-connection-overlay
 import {
   attachmentContextForContract,
   createSessionEventReader,
+  createSessionEventTailReader,
   createSessionLogReader,
   hasBatchAttachmentContract,
   installHostSettingsCompatibility,
@@ -74,6 +75,128 @@ test('bounded Session event reader propagates advertised Host failures instead o
   })
   await assert.rejects(() => read({ id: 'session-reader' }, 0), (error) => error === failure)
   await assert.rejects(() => read({ id: 'session-reader' }, -1), /non-negative safe integer/)
+})
+
+
+test('bounded Session tail reader adapts to Host window limits and returns only events after the anchor', async () => {
+  const events = Array.from({ length: 5 }, (_, seq) => ({ seq, type: 'user/message', data: { seq } }))
+  const requests = []
+  const query = {
+    async readEvent(request) {
+      requests.push({ ...request })
+      const after = request.after ?? 0
+      if (after > 2) {
+        const error = new Error('window too large')
+        error.code = 'SESSION_QUERY_INVALID_WINDOW'
+        throw error
+      }
+      if (request.seq >= events.length) {
+        const error = new Error('event missing')
+        error.code = 'SESSION_QUERY_EVENT_NOT_FOUND'
+        throw error
+      }
+      const windowEvents = events.slice(request.seq, Math.min(events.length, request.seq + after + 1))
+      return {
+        target: events[request.seq],
+        events: windowEvents,
+        startSeq: request.seq,
+        endSeq: windowEvents.at(-1).seq,
+      }
+    },
+  }
+  const readTail = createSessionEventTailReader({ sessionQuery: query })
+  const session = { id: 'tail-reader' }
+  const result = await readTail(session, 1)
+  assert.equal(result.supported, true)
+  assert.equal(result.capturedThroughSeq, 4)
+  assert.equal(result.truncated, false)
+  assert.deepEqual(result.events.map((event) => event.seq), [2, 3, 4])
+  assert.equal(requests.some((request) => (request.after ?? 0) > 2), true, 'reader must negotiate a lowered Host window')
+
+  const requestCount = requests.length
+  const captureOnly = await readTail(session, 3, { collect: false })
+  assert.deepEqual(captureOnly.events, [])
+  assert.equal(captureOnly.capturedThroughSeq, 4)
+  assert.equal(requests.length > requestCount, true)
+  assert.equal((requests.at(requestCount).after ?? 0) <= 2, true, 'accepted window hint should be reused')
+})
+
+
+test('bounded Session tail reader supports a Host configured with readWindowMax zero', async () => {
+  const events = Array.from({ length: 4 }, (_, seq) => ({ seq, type: 'step/start', data: { seq } }))
+  const requests = []
+  const readTail = createSessionEventTailReader({
+    sessionQuery: {
+      async readEvent(request) {
+        requests.push({ ...request })
+        if ((request.after ?? 0) > 0) {
+          const error = new Error('window disabled')
+          error.code = 'SESSION_QUERY_INVALID_WINDOW'
+          throw error
+        }
+        const event = events[request.seq]
+        if (!event) {
+          const error = new Error('tail reached')
+          error.code = 'SESSION_QUERY_EVENT_NOT_FOUND'
+          throw error
+        }
+        return { target: event, events: [event], startSeq: request.seq, endSeq: request.seq }
+      },
+    },
+  })
+
+  const result = await readTail({ id: 'zero-window' }, 1)
+  assert.deepEqual(result.events.map((event) => event.seq), [2, 3])
+  assert.equal(result.capturedThroughSeq, 3)
+  assert.equal(result.truncated, false)
+  assert.equal(requests.at(-1).seq, 4, 'exact-seq walk must terminate on the first missing tail event')
+  assert.equal(requests.at(-2).after, undefined)
+})
+
+
+test('bounded Session tail reader fails closed on a sparse or shape-drifted Host window', async () => {
+  const readSparse = createSessionEventTailReader({
+    sessionQuery: {
+      async readEvent(request) {
+        return {
+          target: { seq: request.seq, type: 'step/start', data: {} },
+          events: [
+            { seq: request.seq, type: 'step/start', data: {} },
+            { seq: request.seq + 2, type: 'tool/result', data: {} },
+          ],
+          endSeq: request.seq + 2,
+        }
+      },
+    },
+  })
+  await assert.rejects(
+    () => readSparse({ id: 'sparse-window' }, 4),
+    /non-contiguous seq 6; expected 5/,
+  )
+
+  const readMissingWindow = createSessionEventTailReader({
+    sessionQuery: {
+      async readEvent(request) {
+        return { target: { seq: request.seq, type: 'step/start', data: {} } }
+      },
+    },
+  })
+  await assert.rejects(
+    () => readMissingWindow({ id: 'missing-window' }, 4),
+    /returned no event window/,
+  )
+})
+
+test('bounded Session tail reader keeps missing capability explicit and propagates real failures', async () => {
+  const readMissing = createSessionEventTailReader({ get() { return undefined } })
+  assert.deepEqual(await readMissing({ id: 'tail-reader' }, 0), { supported: false })
+
+  const failure = new Error('session query unavailable')
+  const readFailing = createSessionEventTailReader({
+    sessionQuery: { async readEvent() { throw failure } },
+  })
+  await assert.rejects(() => readFailing({ id: 'tail-reader' }, 0), (error) => error === failure)
+  await assert.rejects(() => readFailing({ id: 'tail-reader' }, -1), /non-negative safe integer/)
 })
 
 
@@ -266,10 +389,13 @@ test('same-turn tool image events remain detectable after the offload generation
   assert.equal(eventHasImage(toolResult), true)
 })
 
-test('mid-turn raw event recovery starts at the captured turn boundary, not historical image events', async () => {
+test('mid-turn image recovery uses an async captured tail on modern Hosts and keeps legacy indexing isolated', async () => {
   const source = await readFile(new URL('../index.js', import.meta.url), 'utf8')
-  assert.match(source, /startIndex:\s*events\.length/)
-  assert.match(source, /for\s*\(let i = state\.startIndex; i < events\.length; i\+\+\)/)
+  assert.match(source, /sessionEventTailReader\(session, anchorSeq, \{ collect: false \}\)/)
+  assert.match(source, /capturedThroughSeq:\s*tail\.capturedThroughSeq/)
+  assert.match(source, /legacyStartIndex:\s*\(legacySessionEvents\(session\) \?\? \[\]\)\.length/)
+  assert.match(source, /await refreshTurnImageState\(session, state\)/)
+  assert.doesNotMatch(source, /state\.startIndex/)
 })
 
 test('settings compatibility keeps the first-class section without requiring a legacy plugin card', async () => {

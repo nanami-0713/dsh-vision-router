@@ -38,6 +38,42 @@ test('session turn resolver prefers Host turnBoundary projection without reading
   assert.equal(reads, 0)
 })
 
+
+test('session turn resolver exposes a current-turn event anchor from the Host projection', () => {
+  const resolver = createSessionTurnResolver({
+    sessionProjections: {
+      stateOf(_session, key) {
+        assert.equal(key, 'turnBoundary')
+        return {
+          openTurnStartSeq: 10,
+          lastStepStartSeq: 14,
+          lastStepBoundary: { kind: 'end', seq: 17 },
+          lastTurn: 4,
+        }
+      },
+    },
+  })
+  const session = { id: 'anchor-session' }
+  assert.equal(resolver.turnOf(session), 4)
+  assert.equal(resolver.eventAnchorOf(session), 17)
+})
+
+test('session turn resolver never reuses a previous-turn boundary when no turn is open', () => {
+  const resolver = createSessionTurnResolver({
+    sessionProjections: {
+      stateOf() {
+        return {
+          openTurnStartSeq: null,
+          lastStepStartSeq: 14,
+          lastStepBoundary: { kind: 'end', seq: 17 },
+          lastTurn: 4,
+        }
+      },
+    },
+  })
+  assert.equal(resolver.eventAnchorOf({ id: 'between-turns' }), undefined)
+})
+
 test('session turn resolver does not create a new deprecated-history fallback on legacy Hosts', () => {
   let reads = 0
   const resolver = createSessionTurnResolver({ get() { return undefined } })

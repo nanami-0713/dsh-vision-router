@@ -17,10 +17,10 @@
 // advanced vision-only override for `proxyHosts`; Host-owned visual adapters use
 // a scoped compatibility wrapper, never configuration-wide process routing.
 
-// Compatibility shim: dsh 0.1.2-alpha.4 removed `session.events` in favor of
-// `session.snapshotEvents()`. This helper returns an array (or undefined) that
-// works on both old and new harness versions.
-function getSessionEvents(session) {
+// Legacy compatibility shim only. Modern supported Hosts use turnBoundary +
+// SessionQuery for ordinary runtime reads; this path remains for older/partial
+// Hosts that do not expose those capabilities.
+function legacySessionEvents(session) {
   if (!session) return undefined
   // alpha.4+ : snapshotEvents() returns a frozen array of the event log
   if (typeof session.snapshotEvents === 'function') {
@@ -95,7 +95,7 @@ import {
   scaleBox,
   scaledDimensions,
 } from './lib/image-resource-governor.js'
-import { createSessionEventReader, createSessionLogReader } from './lib/dsh-contract-compat.js'
+import { createSessionEventReader, createSessionEventTailReader, createSessionLogReader } from './lib/dsh-contract-compat.js'
 import { createSessionVisionIndex } from './lib/session-vision-index.js'
 import { createSessionVisionStateStore } from './lib/session-vision-state.js'
 import {
@@ -702,6 +702,7 @@ export function apply(ctx, config = {}, runtime = {}) {
   const visionTurnMemory = createVisionTurnMemory()
 
   const sessionTurnResolver = runtime?.sessionTurnResolver ?? createSessionTurnResolver(ctx)
+  const sessionEventTailReader = runtime?.sessionEventTailReader ?? createSessionEventTailReader(ctx)
 
   // Current stable/preview Hosts expose the Agent loop's `turnBoundary`
   // Session projection. Runtime composition shares one resolver with shadow
@@ -711,7 +712,7 @@ export function apply(ctx, config = {}, runtime = {}) {
     try {
       const projected = sessionTurnResolver.turnOf(session)
       if (Number.isInteger(projected) && projected >= 0) return projected
-      const events = getSessionEvents(session)
+      const events = legacySessionEvents(session)
       if (!Array.isArray(events)) return 0
       const last = events.findLast((event) => event && event.type === 'turn/start')
       return last && Number.isInteger(last.data && last.data.turn) ? last.data.turn : 0
@@ -2288,8 +2289,79 @@ export function apply(ctx, config = {}, runtime = {}) {
   const resolveAttachment = (session, id) => sessionVisionIndex.resolveAttachment(session, id)
   const resolveAttachments = (session, ids) => sessionVisionIndex.resolveAttachments(session, ids)
 
-  // session -> { turn, startIndex, hasImage, routed, failures, lastError }
+  // Session-local routing handoff between pre-step and agent/request. Modern
+  // Hosts store one exact async raw-log tail seq; legacy Hosts retain only the
+  // released synchronous array index fallback.
   const turnState = new WeakMap()
+  const midTurnReadWarnings = new WeakMap()
+
+  const warnMidTurnReadFailure = (session, error) => {
+    const message = String(error?.message ?? error ?? '').slice(0, 400)
+    if (midTurnReadWarnings.get(session) === message) return
+    midTurnReadWarnings.set(session, message)
+    ctx.logger?.warn?.('vision-router: mid-turn Session event read failed; routing conservatively to vision: %s', message)
+  }
+
+  const legacyTurnCapture = (session) => ({
+    legacyStartIndex: (legacySessionEvents(session) ?? []).length,
+  })
+
+  const captureTurnTail = async (session) => {
+    const anchorSeq = sessionTurnResolver?.eventAnchorOf?.(session)
+    if (!Number.isSafeInteger(anchorSeq) || anchorSeq < 0) return legacyTurnCapture(session)
+    if (typeof sessionEventTailReader !== 'function') return legacyTurnCapture(session)
+    try {
+      const tail = await sessionEventTailReader(session, anchorSeq, { collect: false })
+      if (tail?.supported === false) return legacyTurnCapture(session)
+      if (tail?.supported !== true || !Number.isSafeInteger(tail.capturedThroughSeq)) {
+        warnMidTurnReadFailure(session, new Error('Session tail reader returned an invalid capability result'))
+        return { scanUnknown: true }
+      }
+      midTurnReadWarnings.delete(session)
+      return tail.truncated === true
+        ? { capturedThroughSeq: tail.capturedThroughSeq, scanUnknown: true }
+        : { capturedThroughSeq: tail.capturedThroughSeq }
+    } catch (error) {
+      warnMidTurnReadFailure(session, error)
+      return { scanUnknown: true }
+    }
+  }
+
+  const refreshTurnImageState = async (session, state) => {
+    if (state.hasImage) return
+    if (state.scanUnknown === true) {
+      state.hasImage = true
+      return
+    }
+    if (Number.isSafeInteger(state.capturedThroughSeq)) {
+      try {
+        const tail = await sessionEventTailReader(session, state.capturedThroughSeq)
+        if (tail?.supported !== true || !Number.isSafeInteger(tail.capturedThroughSeq)) {
+          state.hasImage = true
+          warnMidTurnReadFailure(session, new Error('Session tail reader became unavailable after capture'))
+          return
+        }
+        midTurnReadWarnings.delete(session)
+        state.capturedThroughSeq = tail.capturedThroughSeq
+        if (tail.truncated === true || tail.events.some((event) => eventHasImage(event))) state.hasImage = true
+        return
+      } catch (error) {
+        state.hasImage = true
+        warnMidTurnReadFailure(session, error)
+        return
+      }
+    }
+
+    const events = legacySessionEvents(session) ?? []
+    const startIndex = Number.isSafeInteger(state.legacyStartIndex) ? state.legacyStartIndex : 0
+    for (let i = startIndex; i < events.length; i++) {
+      if (eventHasImage(events[i])) {
+        state.hasImage = true
+        break
+      }
+    }
+    state.legacyStartIndex = events.length
+  }
 
   ctx.on('agent/pre-step', async (payload, next) => {
     let decision = await next()
@@ -2338,11 +2410,11 @@ export function apply(ctx, config = {}, runtime = {}) {
     // agent/request hook must still see the state, otherwise an image turn is
     // served by the text provider and rejected (issue #74, second root cause).
     if (routingEnabled()) {
-      const events = getSessionEvents(session) ?? []
+      const capture = hasImage ? {} : await captureTurnTail(session)
       turnState.set(session, {
         turn: payload.turn,
-        startIndex: events.length,
         hasImage,
+        ...capture,
       })
     }
     let bootstrapState = structuredBootstrapTurnState.get(session)
@@ -2559,15 +2631,7 @@ export function apply(ctx, config = {}, runtime = {}) {
     if (!session) return config0
     const state = turnState.get(session)
     if (!state || state.turn !== payload.turn) return config0
-    if (!state.hasImage) {
-    const events = getSessionEvents(session) ?? []
-    for (let i = state.startIndex; i < events.length; i++) {
-      if (eventHasImage(events[i])) {
-        state.hasImage = true
-        break
-      }
-    }
-    }
+    if (!state.hasImage) await refreshTurnImageState(session, state)
     if (!state.hasImage) {
       // Reverse routing: the session's entry model is a vision provider
       // (needed to pass the prompt admission); send text-only turns back

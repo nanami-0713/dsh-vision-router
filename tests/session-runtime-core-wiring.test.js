@@ -25,15 +25,21 @@ test('runtime composition creates one explicit SessionVisionRuntime and gives th
   )
 })
 
-test('production SessionVisionRuntime receives narrow Host Session readers', async () => {
+test('production runtime receives only narrow Host Session readers', async () => {
   const runtime = await source('lib/runtime-composition.js')
   const compat = await source('lib/dsh-contract-compat.js')
 
   assert.match(runtime, /createSessionEventReader\(nativeImageCompat\.ctx\)/)
   assert.match(runtime, /readSessionEvent:\s*createSessionEventReader\(nativeImageCompat\.ctx\)/)
   assert.match(runtime, /readSessionLog:\s*createSessionLogReader\(nativeImageCompat\.ctx\)/)
+  assert.match(
+    runtime,
+    /const sessionEventTailReader = createSessionEventTailReader\(backgroundProfiling\.ctx\)/,
+  )
+  assert.match(runtime, /sessionTurnResolver,\s*sessionEventTailReader,/)
   assert.match(compat, /query\.readEvent\(\{ sessionId, seq \}\)/)
   assert.match(compat, /query\.readSession\(sessionId\)/)
+  assert.match(compat, /query\.readEvent\(request\)/)
 })
 
 test('session state and index expose no hidden current owner or lookup monkey-patch seam', async () => {
@@ -88,6 +94,11 @@ test('core accepts the optional internal runtime without breaking two-argument d
     core,
     /readSessionLog:\s*createSessionLogReader\(ctx\)/,
     'two-argument direct callers on a full Host must use the same async Session log reader',
+  )
+  assert.match(
+    core,
+    /const sessionEventTailReader = runtime\?\.sessionEventTailReader \?\? createSessionEventTailReader\(ctx\)/,
+    'two-argument direct callers on a full Host must use the same bounded Session tail reader',
   )
   assert.match(
     core,
