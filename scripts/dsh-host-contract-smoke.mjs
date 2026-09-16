@@ -23,12 +23,19 @@ assert.ok(plugin.Config, 'packaged public entry must export Config')
 const attachmentEntry = requireFromHost.resolve('@deepseek-ai/dsh-attachment')
 const attachment = await import(pathToFileURL(attachmentEntry).href)
 const attachmentStore = Object.create(attachment.default.prototype)
-const { hasBatchAttachmentContract } = plugin
+const { hasBatchAttachmentContract, hostOwnsOfficialDeepSeekProvider } = plugin
 assert.equal(typeof hasBatchAttachmentContract, 'function')
+assert.equal(typeof hostOwnsOfficialDeepSeekProvider, 'function')
+const contractCtx = { get(name) { return name === 'attachments' ? attachmentStore : undefined } }
 assert.equal(
-  hasBatchAttachmentContract({ get(name) { return name === 'attachments' ? attachmentStore : undefined } }),
+  hasBatchAttachmentContract(contractCtx),
   expectBatch,
   'batch attachment capability must match the released Host prototype',
+)
+assert.equal(
+  hostOwnsOfficialDeepSeekProvider(contractCtx),
+  expectBatch,
+  'official DeepSeek ownership must track the batch-attachment Host generation',
 )
 
 const attachmentLocalEntry = requireFromHost.resolve('@deepseek-ai/dsh-attachment-local')

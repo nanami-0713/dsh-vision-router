@@ -95,7 +95,7 @@ import {
   scaleBox,
   scaledDimensions,
 } from './lib/image-resource-governor.js'
-import { createSessionEventReader, createSessionEventTailReader, createSessionLogReader } from './lib/dsh-contract-compat.js'
+import { createSessionEventReader, createSessionEventTailReader, createSessionLogReader, hostOwnsOfficialDeepSeekProvider } from './lib/dsh-contract-compat.js'
 import { createSessionVisionIndex } from './lib/session-vision-index.js'
 import { createSessionVisionStateStore } from './lib/session-vision-state.js'
 import {
@@ -171,7 +171,7 @@ export const Config = z.object({
   wrapperRoute: z.string().default('deepseek-vision'),
   chainRoute: z.string().default('vision-chain'),
   // 默认关闭（issue #34 明确 opt-in）：关闭时官方 deepseek-official 路由
-  // 原样保留；唯一例外见 apply 里的 keep-alive 兜底（官方行被禁用时）。
+  // 原样保留；仅 legacy Host 保留 keep-alive 接管兼容（官方行被禁用时）。
   stealth: z.boolean().default(false),
   textProvider: z
     .object({
@@ -552,6 +552,8 @@ export function apply(ctx, config = {}, runtime = {}) {
   // adapter boundaries that do not expose a Session; ambiguous attachment ids
   // deliberately miss instead of crossing conversations.
   const sessionVisionRuntime = runtime?.sessionVision
+  const hostOwnsOfficialDeepSeek = runtime?.hostOwnsOfficialDeepSeek
+    ?? hostOwnsOfficialDeepSeekProvider(ctx)
   const visionState = sessionVisionRuntime?.stateStore ?? createSessionVisionStateStore({
     maxSessions: 64,
     idleTtlMs: 60 * 60 * 1000,
@@ -809,12 +811,10 @@ export function apply(ctx, config = {}, runtime = {}) {
   // image turns work. If the stock row is still active, taking over the route
   // throws DUPLICATE_ADAPTER and we fall back to the visible wrapper below.
   const stealthEnabled = current().stealth !== false
-  // Keep-alive fallback: stealth off leaves the stock `deepseek-official`
-  // route untouched — but when that route is dead (e.g. the official
-  // llm-deepseek row is disabled in the profile patch layer), serving it
-  // ourselves is the only way to keep the DeepSeek models in the picker.
-  // The settings card surfaces this condition as a hint, and re-enabling
-  // the stock row restores the fully official route.
+  // Legacy keep-alive fallback: older Hosts let DVR rebuild a missing stock
+  // `deepseek-official` route for compatibility. Newer Host generations own
+  // the provider's attachment/file lifecycle, so a missing official row is a
+  // Host configuration problem: DVR reports it and never reconstructs it.
   //
   // The takeover decision runs AFTER a short settle window, never inside
   // apply(): entry activation is service-driven, so this row can apply
@@ -900,9 +900,19 @@ export function apply(ctx, config = {}, runtime = {}) {
     if (adapterAvailable(ctx.llm, 'deepseek-official')) {
       if (stealthEnabled) {
         ctx.logger?.warn(
-          'vision-router: stealth is enabled but the stock deepseek-official route is alive; disable the llm-deepseek row to take it over',
+          hostOwnsOfficialDeepSeek
+            ? 'vision-router: stealth takeover is unavailable because this DSH Host owns deepseek-official; using the auto-vision wrapper instead'
+            : 'vision-router: legacy stealth takeover is enabled but the stock deepseek-official route is alive; disable llm-deepseek only on this legacy Host contract to take it over',
         )
       }
+      return
+    }
+    if (hostOwnsOfficialDeepSeek) {
+      takeoverAttempted = true
+      takeoverReason = 'host-owned-official-unavailable'
+      ctx.logger?.warn(
+        'vision-router: deepseek-official is unavailable on a Host-owned provider contract; re-enable the llm-deepseek row because Vision Router will not recreate it',
+      )
       return
     }
     attemptTakeover(stealthEnabled ? 'stealth' : 'official-unavailable')
@@ -4946,10 +4956,16 @@ ctx.logger?.info(
             // Runtime takeover state: lets the settings card explain the
             // keep-alive fallback when stealth is off but the stock route is
             // disabled at the composition layer.
+            const officialRouteAvailable = adapterAvailable(ctx.llm, 'deepseek-official')
             result.stealth = {
               configured: stealthEnabled,
               active: stealthActive,
-              reason: stealthActive ? takeoverReason : undefined,
+              reason: stealthActive
+                ? takeoverReason
+                : hostOwnsOfficialDeepSeek && !officialRouteAvailable
+                  ? 'host-owned-official-unavailable'
+                  : undefined,
+              hostOwned: hostOwnsOfficialDeepSeek,
             }
             res.writeHead(result.ok ? 200 : 502, { 'content-type': 'application/json' })
             res.end(JSON.stringify(result))

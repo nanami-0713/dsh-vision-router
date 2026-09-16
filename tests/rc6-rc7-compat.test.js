@@ -11,6 +11,7 @@ import {
   createSessionEventTailReader,
   createSessionLogReader,
   hasBatchAttachmentContract,
+  hostOwnsOfficialDeepSeekProvider,
   installHostSettingsCompatibility,
   installRc7SettingsCompatibility,
   isRc7ContractRuntime,
@@ -41,6 +42,14 @@ test('contract detection follows the released attachment API, not unrelated LLM 
   assert.equal(hasBatchAttachmentContract({ llm: { registerConfigurableProviders() {} } }), false)
   assert.equal(isRc7ContractRuntime, hasBatchAttachmentContract)
 })
+
+test('official DeepSeek ownership follows the same batch-attachment Host generation fact', () => {
+  const single = runtimeWithAttachments({ saveImage() {}, readImage() {} })
+  const batch = runtimeWithAttachments({ saveImage() {}, saveImages() {}, readImage() {} })
+  assert.equal(hostOwnsOfficialDeepSeekProvider(single), false)
+  assert.equal(hostOwnsOfficialDeepSeekProvider(batch), true)
+})
+
 
 test('bounded Session event reader follows the live Host service and keeps missing capability explicit', async () => {
   let query

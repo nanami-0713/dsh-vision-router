@@ -299,17 +299,11 @@ Failures are classified (region / tos / quota / rate-limit / context / network) 
 
 ## Stealth mode
 
-Stealth mode is **off by default** (explicit opt-in since issue #34): with it off, the official `deepseek-official` route stays untouched. When you need images, the composer’s “👁 Vision” control switches to the internal DeepSeek wrapper, which is hidden from the stock picker and `/model` presentation by default.
+Stealth mode is **off by default** (explicit opt-in since issue #34): the official `deepseek-official` route stays untouched. When you need images, the composer’s “👁 Vision” control switches to the internal DeepSeek wrapper, which is hidden from the stock picker and `/model` presentation by default.
 
-With stealth on, the plugin takes over the official `deepseek-official` route: the model picker looks exactly like stock (same DeepSeek group, same model names), but each entry is the auto-vision wrapper that declares image input and delegates text turns to a rebuilt native DeepSeek adapter (same `llm-deepseek` settings section and credentials). Old sessions keep working through the hidden `deepseek-vision` alias. The takeover requires the stock row to be absent — disable it in your profile patch layer (`~/.dsh/profiles/<profile>/cordis.patch.yml`):
+On newer DSH Host generations, the official DeepSeek provider owns request-local attachment, file and image-access behavior. Vision Router therefore **never reconstructs or resurrects `deepseek-official` on those Hosts**. Keep `llm-deepseek` enabled and use the internal “DeepSeek + Auto Vision” wrapper / “👁 Vision” control for image tasks. If the official row is disabled or unavailable, the settings card reports that configuration problem instead of silently recreating a partial provider.
 
-```yaml
-- id: llm-deepseek
-  name: '@deepseek-ai/dsh-llm-deepseek'
-  disabled: true
-```
-
-With the stock row present, the plugin keeps the official route and uses the internal wrapper through “👁 Vision”. Conversely, with stealth off but the stock row still disabled, the plugin performs a keep-alive takeover so the DeepSeek models don't vanish (the settings card explains this); to restore the fully official route, flip the `disabled` above back to `false` and restart.
+Legacy Host contracts that do not expose this provider-ownership capability retain the historical takeover/keep-alive behavior for compatibility: when their stock DeepSeek row is absent, Vision Router can still rebuild the legacy provider path so existing profiles and sessions keep working. This fallback is not a setup requirement for current Hosts and should not be enabled by disabling `llm-deepseek` on a modern installation.
 
 > Stealth mode **only affects the official DeepSeek route**. Custom/third-party routes such as opencode also receive internal vision wrappers by default, used through the composer toggle rather than a second user-facing model group.
 

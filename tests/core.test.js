@@ -1304,7 +1304,7 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
   const adapters = new Map() // provider -> adapter
   const registrations = new Map() // provider -> { adapter, retryPolicy }
   const directories = [] // configurable-provider registrations (directory seam)
-  const captured = { skills: [], tools: [], streamCalls: [], on: new Map() }
+  const captured = { skills: [], tools: [], streamCalls: [], settingsReads: [], on: new Map() }
   // The mutable user document and the watch seam: tests flip config0 fields
   // and fire the watchers to simulate a settings-card save.
   const userDoc = config0
@@ -1378,10 +1378,10 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
   }
   const ctx = {
     get(name) {
-      if (name === 'settings') return { get: () => undefined }
+      if (name === 'settings') return { get: (namespace) => { captured.settingsReads.push(namespace); return undefined } }
       if (name === 'credentials') return { resolve: async () => ({ value: 'sk-test' }) }
       if (name === 'attachments' && attachments) {
-        return {
+        const store = {
           readImage: async (ref) => ({ ref, data: Buffer.from('not-a-real-image') }),
           saveImage: async ({ data, mediaType, name }) => ({
             attachmentId: `saved-${data.length}`,
@@ -1389,6 +1389,10 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
             name,
           }),
         }
+        if (attachments === 'batch') {
+          store.saveImages = async (items) => Promise.all(items.map((item) => store.saveImage(item)))
+        }
+        return store
       }
       if (name === 'skills' && skills) {
         return {
@@ -1598,6 +1602,43 @@ test('the vision chain ships with the built-in free model as its first row', () 
   assert.deepEqual(Config({}).providers, [
     { provider: 'vision-http', model: 'ovh/Qwen3.5-397B-A17B', fallbacks: [] },
   ])
+})
+
+test('modern Host ownership never rebuilds or resurrects a missing official DeepSeek route', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { ctx, adapters, directories, captured } = mockHarnessCtx({ attachments: 'batch' })
+  apply(ctx, Config({ stealth: true }))
+  t.mock.timers.tick(2000)
+
+  assert.equal(adapters.has('deepseek-official-native'), false)
+  assert.equal(adapters.has('deepseek-official'), false)
+  assert.equal(
+    captured.settingsReads.includes('llm-deepseek'),
+    false,
+    'modern ownership must stop before createNativeDeepSeekAdapter reads stock settings',
+  )
+  assert.ok(adapters.has('deepseek-vision'), 'the visible auto-vision wrapper remains mounted')
+  assert.deepEqual(
+    directories.filter((entry) => entry.entries.some((row) => row && row.provider === 'deepseek-official')),
+    [],
+    'modern DVR must never claim the official provider directory when Host ownership is active',
+  )
+
+  // If the Host-owned row appears after the settle window, the wrapper follows
+  // it live instead of requiring a synthetic takeover or plugin restart.
+  const lateStock = {
+    providerInfo: (provider) => ({ id: provider, name: 'DeepSeek' }),
+    providerRetryPolicy: () => 'retry',
+    listModels: async (provider) => [
+      { provider, id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+    ],
+    resolveModel: async (provider, model) => ({ provider, id: model, name: model, inputModalities: ['text'] }),
+    stream: async function* () { yield { type: 'finish', reason: { kind: 'stop' } } },
+  }
+  ctx.llm.registerAdapter(['deepseek-official'], lateStock)
+  const listed = await adapters.get('deepseek-vision').listModels('deepseek-vision')
+  assert.deepEqual(listed.map((model) => model.id), ['deepseek-v4-pro'])
+  assert.equal(adapters.has('deepseek-official-native'), false)
 })
 
 test('keep-alive fallback: stealth off + dead stock route still serves deepseek-official', async (t) => {

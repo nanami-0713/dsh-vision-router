@@ -36,7 +36,8 @@ test('production runtime receives only narrow Host Session readers', async () =>
     runtime,
     /const sessionEventTailReader = createSessionEventTailReader\(backgroundProfiling\.ctx\)/,
   )
-  assert.match(runtime, /sessionTurnResolver,\s*sessionEventTailReader,/)
+  assert.match(runtime, /sessionTurnResolver,\s*sessionEventTailReader,\s*hostOwnsOfficialDeepSeek,/)
+  assert.match(runtime, /const hostOwnsOfficialDeepSeek = hostOwnsOfficialDeepSeekProvider\(stabilizedCtx\)/)
   assert.match(compat, /query\.readEvent\(\{ sessionId, seq \}\)/)
   assert.match(compat, /query\.readSession\(sessionId\)/)
   assert.match(compat, /query\.readEvent\(request\)/)
@@ -102,8 +103,22 @@ test('core accepts the optional internal runtime without breaking two-argument d
   )
   assert.match(
     core,
+    /const hostOwnsOfficialDeepSeek = runtime\?\.hostOwnsOfficialDeepSeek[\s\S]*?hostOwnsOfficialDeepSeekProvider\(ctx\)/,
+    'direct callers must use the same semantic Host ownership capability as composition',
+  )
+  assert.match(
+    core,
     /if \(sessionVisionRuntime\?\.index === undefined\) \{\s*decision = await sessionVisionIndex\.prepareDecision\(payload, decision\)\s*\}/,
     'two-argument direct callers must keep the same Session behavior through the local index fallback',
+  )
+})
+
+test('modern DeepSeek ownership diagnostics re-check live official route availability', async () => {
+  const core = await source('index.js')
+  assert.match(core, /const officialRouteAvailable = adapterAvailable\(ctx\.llm, 'deepseek-official'\)/)
+  assert.match(
+    core,
+    /hostOwnsOfficialDeepSeek && !officialRouteAvailable[\s\S]*?'host-owned-official-unavailable'/,
   )
 })
 

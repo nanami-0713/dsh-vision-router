@@ -297,17 +297,11 @@ vision_long_screenshot_ocr image="chat-log.png" chunkHeight=1200 overlap=120
 
 ## 隐身模式
 
-隐身模式默认**关闭**（issue #34 起显式 opt-in）：关闭时官方 `deepseek-official` 路由原样保留；需要看图时通过输入框旁的「👁 识图」切换到内部 DeepSeek wrapper。该 wrapper 默认从原生模型选择器和 `/model` 展示层隐藏。
+隐身模式默认**关闭**（issue #34 起显式 opt-in）：官方 `deepseek-official` 路由原样保留；需要看图时通过输入框旁的「👁 识图」切换到内部 DeepSeek wrapper。该 wrapper 默认从原生模型选择器和 `/model` 展示层隐藏。
 
-开启隐身模式后，插件接管官方 `deepseek-official` 路由：模型选择器看起来和原版完全一样（同一个 DeepSeek 组、同样的模型名），但每个条目背后都是声明了图片输入的自动识图包装；文字轮交给插件重建的原生 DeepSeek 适配器（读取同一个 `llm-deepseek` 设置段与凭据）。老会话通过隐藏的 `deepseek-vision` 别名继续工作。接管的前提是官方行不在场——在你的 profile 补丁层（`~/.dsh/profiles/<profile>/cordis.patch.yml`）禁用即可：
+在新版 DSH Host 中，官方 DeepSeek provider 自己负责请求期的附件、Files API 与图片访问能力。因此 Vision Router **不会再重建或复活 `deepseek-official`**。请保持 `llm-deepseek` 启用，通过内部「DeepSeek + 自动识图」wrapper /「👁 识图」处理图片；如果官方行被禁用或不可用，设置页会明确提示重新启用，而不是偷偷注册一个能力不完整的替代 provider。
 
-```yaml
-- id: llm-deepseek
-  name: '@deepseek-ai/dsh-llm-deepseek'
-  disabled: true
-```
-
-官方行在场时，插件保留官方路由并使用内部 wrapper +「👁 识图」入口。反过来，隐身模式关闭但官方行仍被禁用时，插件会做 keep-alive 兜底接管，保住 DeepSeek 模型（设置页会给出提示）；想完全恢复官方原生行，把上面的 `disabled` 改回 `false` 再重启即可。
+缺少这项 provider ownership 能力的 legacy Host contract 仍保留历史接管 / keep-alive 行为，以兼容旧 profile 和旧会话：只有这条兼容路径在官方行缺失时才可能由 Vision Router 重建旧 provider。这不是新版 Host 的配置方式；当前安装不要为了隐身模式去禁用 `llm-deepseek`。
 
 > 隐身模式**只作用于官方 DeepSeek 路由**。opencode 等自定义/第三方文本路由与隐身模式无关——默认也会生成内部识图 wrapper，由「👁 识图」按需使用。
 
