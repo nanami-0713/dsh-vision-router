@@ -62,7 +62,7 @@ test('description memory is bounded by entry count and text weight', () => {
   assert.ok(store.stateStats(session).descriptionChars <= 12)
 })
 
-test('attachment refs and stable sessions are bounded while event scan cursor survives resume', () => {
+test('attachment refs and stable sessions remain bounded without a durable-log cursor', () => {
   const store = createSessionVisionStateStore({
     maxSessions: 3,
     attachmentMaxEntries: 2,
@@ -75,9 +75,6 @@ test('attachment refs and stable sessions are bounded while event scan cursor su
   ])
   assert.equal(store.lookupAttachment(active, 'one'), undefined)
   assert.equal(store.lookupAttachment(active, 'two').attachmentId, 'two')
-  store.setScannedEventSeq(active, 41)
-  assert.equal(store.getScannedEventSeq({ id: 'active' }), 41)
-
   for (let i = 0; i < 10; i++) {
     const session = { id: `short-${i}` }
     store.recordAttachments(session, [{ attachmentId: `img-${i}` }])

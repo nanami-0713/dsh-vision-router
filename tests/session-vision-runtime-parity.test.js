@@ -56,8 +56,7 @@ test('explicit runtime never monkey-patches the state-store lookup API', () => {
     surface: { nodes: [0] },
   }
 
-  runtime.index.scanEventLog(session)
-  runtime.index.lookupAttachment(session, 'durable')
+  assert.equal(runtime.index.lookupAttachment(session, 'durable')?.attachmentId, 'durable')
   assert.equal(store.lookupAttachment, originalLookup)
 })
 
@@ -71,7 +70,7 @@ test('explicit runtime remains bound to its own store when another store is cons
   }
 
   const storeB = createSessionVisionStateStore()
-  runtime.index.scanEventLog(session)
+  assert.equal(runtime.index.lookupAttachment(session, 'owned-by-a')?.attachmentId, 'owned-by-a')
   assert.equal(storeA.lookupAttachment(session, 'owned-by-a')?.attachmentId, 'owned-by-a')
   assert.equal(storeB.lookupAttachment(session, 'owned-by-a'), undefined)
 })
@@ -90,7 +89,7 @@ test('explicit runtime preserves bounded target-only durable recovery semantics'
     surface: { nodes: [0, 1] },
   }
 
-  runtime.index.scanEventLog(session)
+  runtime.index.recordAttachments(session, [ref('old'), ref('new')])
   assert.equal(runtime.stateStore.stateStats(session).attachments, 1)
   assert.equal(runtime.index.lookupAttachment(session, 'old')?.attachmentId, 'old')
   assert.equal(runtime.stateStore.stateStats(session).attachments, 1)
