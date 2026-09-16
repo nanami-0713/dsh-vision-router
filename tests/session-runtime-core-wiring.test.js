@@ -25,13 +25,15 @@ test('runtime composition creates one explicit SessionVisionRuntime and gives th
   )
 })
 
-test('production SessionVisionRuntime receives the bounded Host Session event reader', async () => {
+test('production SessionVisionRuntime receives narrow Host Session readers', async () => {
   const runtime = await source('lib/runtime-composition.js')
   const compat = await source('lib/dsh-contract-compat.js')
 
   assert.match(runtime, /createSessionEventReader\(nativeImageCompat\.ctx\)/)
   assert.match(runtime, /readSessionEvent:\s*createSessionEventReader\(nativeImageCompat\.ctx\)/)
+  assert.match(runtime, /readSessionLog:\s*createSessionLogReader\(nativeImageCompat\.ctx\)/)
   assert.match(compat, /query\.readEvent\(\{ sessionId, seq \}\)/)
+  assert.match(compat, /query\.readSession\(sessionId\)/)
 })
 
 test('session state and index expose no hidden current owner or lookup monkey-patch seam', async () => {
@@ -54,7 +56,11 @@ test('core delegates Session indexing, recovery and surface repair to SessionVis
   )
   assert.match(
     core,
-    /const lookupAttachment = \(session, id\) => sessionVisionIndex\.lookupAttachment\(session, id\)/,
+    /const resolveAttachment = \(session, id\) => sessionVisionIndex\.resolveAttachment\(session, id\)/,
+  )
+  assert.match(
+    core,
+    /const resolveAttachments = \(session, ids\) => sessionVisionIndex\.resolveAttachments\(session, ids\)/,
   )
   assert.doesNotMatch(core, /const scanSessionEventLog\s*=/)
   assert.doesNotMatch(core, /const sanitizeSessionToolResults\s*=/)
@@ -77,6 +83,11 @@ test('core accepts the optional internal runtime without breaking two-argument d
     core,
     /readSessionEvent:\s*createSessionEventReader\(ctx\)/,
     'two-argument direct callers on a full Host must use the same bounded Session event reader',
+  )
+  assert.match(
+    core,
+    /readSessionLog:\s*createSessionLogReader\(ctx\)/,
+    'two-argument direct callers on a full Host must use the same async Session log reader',
   )
   assert.match(
     core,

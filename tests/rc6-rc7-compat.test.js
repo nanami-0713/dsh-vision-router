@@ -8,6 +8,7 @@ import { classifyWebConnectionRows } from '../scripts/dsh-web-connection-overlay
 import {
   attachmentContextForContract,
   createSessionEventReader,
+  createSessionLogReader,
   hasBatchAttachmentContract,
   installHostSettingsCompatibility,
   installRc7SettingsCompatibility,
@@ -73,6 +74,38 @@ test('bounded Session event reader propagates advertised Host failures instead o
   })
   await assert.rejects(() => read({ id: 'session-reader' }, 0), (error) => error === failure)
   await assert.rejects(() => read({ id: 'session-reader' }, -1), /non-negative safe integer/)
+})
+
+
+test('async Session log reader follows live readSession capability and validates the observed owner', async () => {
+  let query
+  const ctx = { get(name) { return name === 'sessionQuery' ? query : undefined } }
+  const read = createSessionLogReader(ctx)
+  const session = { id: 'session-log-reader' }
+
+  assert.deepEqual(await read(session), { supported: false })
+  query = {
+    async readSession(sessionId) {
+      return { session: { id: sessionId }, events: [{ seq: 0, type: 'user/message', data: {} }] }
+    },
+  }
+  assert.deepEqual(await read(session), {
+    supported: true,
+    events: [{ seq: 0, type: 'user/message', data: {} }],
+  })
+
+  query = {
+    async readSession() { return { session: { id: 'other' }, events: [] } },
+  }
+  await assert.rejects(() => read(session), /returned session other/)
+})
+
+test('async Session log reader propagates advertised Host failures instead of masking them', async () => {
+  const failure = new Error('session log unavailable')
+  const read = createSessionLogReader({
+    sessionQuery: { async readSession() { throw failure } },
+  })
+  await assert.rejects(() => read({ id: 'session-log-reader' }), (error) => error === failure)
 })
 
 test('host provider ownership blocks only synthetic official routes', () => {
