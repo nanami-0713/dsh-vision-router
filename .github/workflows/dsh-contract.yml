@@ -27,6 +27,7 @@ jobs:
             current: 'false'
             session_event_read: 'false'
             session_log_read: 'false'
+            image_offload: 'false'
           - name: legacy-contract
             dsh: 0.1.0-rc.8
             batch: 'true'
@@ -34,6 +35,7 @@ jobs:
             current: 'false'
             session_event_read: 'true'
             session_log_read: 'true'
+            image_offload: 'false'
           - name: current-contract
             dsh: 0.1.5-rc.2
             batch: 'true'
@@ -41,6 +43,7 @@ jobs:
             current: 'true'
             session_event_read: 'true'
             session_log_read: 'true'
+            image_offload: 'false'
           - name: preview-contract
             dsh: 0.1.6-alpha.1
             batch: 'true'
@@ -48,6 +51,7 @@ jobs:
             current: 'true'
             session_event_read: 'true'
             session_log_read: 'true'
+            image_offload: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -71,6 +75,7 @@ jobs:
           EXPECT_CURRENT: ${{ matrix.current }}
           EXPECT_SESSION_EVENT_READ: ${{ matrix.session_event_read }}
           EXPECT_SESSION_LOG_READ: ${{ matrix.session_log_read }}
+          EXPECT_IMAGE_OFFLOAD: ${{ matrix.image_offload }}
         run: |
           const fs = require('node:fs')
           const path = require('node:path')
@@ -101,6 +106,14 @@ jobs:
             dependencies['@deepseek-ai/dsh-system-prompt'] = v
             dependencies['@deepseek-ai/dsh-llm-pi-ai'] = v
           }
+          if (process.env.EXPECT_IMAGE_OFFLOAD === 'true') {
+            dependencies['@deepseek-ai/dsh-attachment-local'] = v
+            dependencies['@deepseek-ai/dsh-session-projection'] = v
+            dependencies['@deepseek-ai/dsh-session-persistence-jsonl'] = v
+            dependencies['@deepseek-ai/dsh-agent'] = v
+            dependencies['@deepseek-ai/dsh-agent-loop'] = v
+            dependencies['@deepseek-ai/dsh-compaction-image-offload'] = v
+          }
           fs.writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({
             private: true,
             type: 'module',
@@ -108,12 +121,18 @@ jobs:
             dependencies,
           }, null, 2))
           if (process.env.EXPECT_CURRENT === 'true') {
+            const allowBuilds = [
+              "  '@google/genai': true",
+              '  protobufjs: true',
+            ]
+            if (process.env.EXPECT_IMAGE_OFFLOAD === 'true') {
+              allowBuilds.unshift('  koffi: true', '  fs-ext: true')
+            }
             fs.writeFileSync(path.join(hostDir, 'pnpm-workspace.yaml'), [
               'packages:',
               '  - .',
               'allowBuilds:',
-              "  '@google/genai': true",
-              '  protobufjs: true',
+              ...allowBuilds,
               '',
             ].join('\n'))
           }
@@ -139,3 +158,8 @@ jobs:
         env:
           DSH_CONTRACT_HOST_DIR: ${{ env.HOST_DIR }}
         run: node tests/opencode-session-wire-contract.mjs
+      - name: Verify preview image-offload fork and cold-resume lifecycle
+        if: matrix.image_offload == 'true'
+        env:
+          DSH_CONTRACT_HOST_DIR: ${{ env.HOST_DIR }}
+        run: node scripts/dsh-preview-native-lifecycle-contract.mjs

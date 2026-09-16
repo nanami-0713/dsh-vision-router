@@ -38,6 +38,8 @@ Node 22 and Node 24 remain the general required runtime matrix. The Host contrac
 | Public entry boot | yes | yes | yes | packed plugin public entry import in each Host contract fixture. |
 | Packaged tarball install | yes | yes | yes | each Host contract fixture packs the plugin then installs the tarball into an isolated Host package. |
 
+Preview-only evidence: the `0.1.6-alpha.1` contract fixture additionally mounts the Host-owned `@deepseek-ai/dsh-compaction-image-offload` projection and proves that one offloaded image occurrence stays offloaded across live requests, `SessionStore.fork()`, JSONL process restart, and cold resume, while a new occurrence of the same durable attachment remains a retained image. This is verification evidence for the preview contract only; it does not expand the public support window.
+
 ## Compatibility inventory and exit criteria
 
 Every compatibility seam must answer the same six questions: **Reason**, **Host gap**, **First needed for**, **Feature detection**, **Removal condition**, and **Tests**. Source modules carry the detailed annotation; this table is the architectural index.

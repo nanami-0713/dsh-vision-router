@@ -40,6 +40,16 @@ if (typeof root !== 'string' || root === '') throw new Error('DVR_PREVIEW_LIFECY
 const hostRequire = createRequire(path.join(hostDir, 'contract-host.cjs'))
 const importResolved = async (specifier) => import(pathToFileURL(hostRequire.resolve(specifier)).href)
 
+let imageOffloadEntry
+try {
+  imageOffloadEntry = hostRequire.resolve('@deepseek-ai/dsh-compaction-image-offload')
+} catch (error) {
+  if (error?.code !== 'MODULE_NOT_FOUND') throw error
+}
+const imageOffloadModule = imageOffloadEntry === undefined
+  ? undefined
+  : await import(pathToFileURL(imageOffloadEntry).href)
+
 const llmModule = await importResolved('@deepseek-ai/dsh-llm')
 const sessionModule = await importResolved('@deepseek-ai/dsh-session')
 const sessionProjectionModule = await importResolved('@deepseek-ai/dsh-session-projection')
@@ -77,18 +87,46 @@ const PNG = Buffer.from(
   'base64',
 )
 
-function imageIds(messages) {
-  const ids = []
+function imageOccurrences(messages) {
+  const occurrences = []
   const walk = (content) => {
     if (!Array.isArray(content)) return
     for (const block of content) {
       if (!block || typeof block !== 'object') continue
-      if (block.type === 'image' && block.attachment?.attachmentId) ids.push(String(block.attachment.attachmentId))
+      if (block.type === 'image' && block.attachment?.attachmentId) {
+        occurrences.push({
+          id: String(block.attachment.attachmentId),
+          offloaded: block.offloaded === true,
+        })
+      }
       if (Array.isArray(block.content)) walk(block.content)
     }
   }
   for (const message of messages ?? []) walk(message?.content)
-  return [...new Set(ids)]
+  return occurrences
+}
+
+function imageIds(messages) {
+  return [...new Set(imageOccurrences(messages).map((entry) => entry.id))]
+}
+
+function retainedImageIds(messages) {
+  return [...new Set(imageOccurrences(messages).filter((entry) => !entry.offloaded).map((entry) => entry.id))]
+}
+
+function offloadedImageIds(messages) {
+  return [...new Set(imageOccurrences(messages).filter((entry) => entry.offloaded).map((entry) => entry.id))]
+}
+
+function surfaceImageSeq(session, attachmentId) {
+  const wanted = String(attachmentId)
+  for (const seq of session.surface.nodes) {
+    const event = session.eventAt(seq)
+    if (!event) continue
+    const message = session.deriveEventMessage(event)
+    if (message && retainedImageIds([message]).includes(wanted)) return seq
+  }
+  throw new Error(`retained image occurrence ${wanted} is not on the current surface`)
 }
 
 function responseChunks(text) {
@@ -133,6 +171,7 @@ async function mount(label) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
+  if (imageOffloadModule !== undefined) await ctx.plugin(imageOffloadModule)
   // Persistence must outlive AgentLoop teardown so owned write handles can
   // drain before the backend closes.
   await ctx.plugin(JsonlSessionPersistence, { root: sessionsRoot })
@@ -187,9 +226,48 @@ if (phase === 'before') {
   const route = handle.agent.session.requestHeader()?.config
   assert.equal(route?.provider, 'native-mm-vision')
   assert.equal(route?.model, 'mm')
+
+  let offloaded = false
+  if (imageOffloadModule !== undefined) {
+    const sourceSeq = surfaceImageSeq(handle.agent.session, ref.attachmentId)
+    handle.agent.session.append('image/offload', {
+      targets: [{ seq: sourceSeq, imageIndexes: [0] }],
+    })
+    offloaded = true
+
+    const projected = handle.agent.session.deriveMessages()
+    assert.ok(offloadedImageIds(projected).includes(String(ref.attachmentId)))
+    assert.equal(retainedImageIds(projected).includes(String(ref.attachmentId)), false)
+
+    const forked = ctx.sessions.fork(
+      handle.agent.session,
+      undefined,
+      SessionId('dvr-preview-native-lifecycle-fork'),
+    )
+    const forkProjected = forked.deriveMessages()
+    assert.ok(
+      offloadedImageIds(forkProjected).includes(String(ref.attachmentId)),
+      'fork must inherit the Host-owned image/offload projection',
+    )
+    assert.equal(
+      retainedImageIds(forkProjected).includes(String(ref.attachmentId)),
+      false,
+      'fork must not resurrect an offloaded image occurrence',
+    )
+
+    await turn(handle.agent, [{ type: 'text', text: 'continue after image offload' }])
+    assert.equal(adapter.requests.length, 2)
+    assert.equal(
+      retainedImageIds(adapter.requests[1].messages).includes(String(ref.attachmentId)),
+      false,
+      'live post-offload request must not resend the omitted historical image',
+    )
+    await ctx.sessions.flush(handle.agent.session)
+  }
+
   await handle.dispose()
   assert.ok(await ctx.sessionPersistence.stat(sessionId), 'disposed alpha session must be durably materialized')
-  await writeFile(statePath, JSON.stringify({ ref, route }, null, 2))
+  await writeFile(statePath, JSON.stringify({ ref, route, offloaded }, null, 2))
   await ctx.fiber.dispose()
   console.log('DSH preview native lifecycle before: OK')
 } else {
@@ -203,18 +281,50 @@ if (phase === 'before') {
     agentOptions: { provider: state.route.provider, model: state.route.model },
   })
   const restored = handle.agent.session.deriveMessages()
-  assert.ok(
-    imageIds(restored).includes(String(state.ref.attachmentId)),
-    'Session v2 resume must reconstruct the durable historical image block',
-  )
+  if (state.offloaded === true) {
+    assert.ok(
+      offloadedImageIds(restored).includes(String(state.ref.attachmentId)),
+      'cold resume must reconstruct the Host-owned offloaded image projection',
+    )
+    assert.equal(
+      retainedImageIds(restored).includes(String(state.ref.attachmentId)),
+      false,
+      'cold resume must not resurrect an offloaded image occurrence',
+    )
+  } else {
+    assert.ok(
+      imageIds(restored).includes(String(state.ref.attachmentId)),
+      'Session v2 resume must reconstruct the durable historical image block',
+    )
+  }
 
   await turn(handle.agent, [{ type: 'text', text: 'continue after restart' }])
   assert.equal(adapter.requests.length, 1)
   assert.equal(adapter.requests[0].provider, 'native-mm')
-  assert.ok(
-    imageIds(adapter.requests[0].messages).includes(String(state.ref.attachmentId)),
-    'first post-restart delegated call must still receive the historical image block',
-  )
+  if (state.offloaded === true) {
+    assert.equal(
+      retainedImageIds(adapter.requests[0].messages).includes(String(state.ref.attachmentId)),
+      false,
+      'first post-restart request must not resend the offloaded historical image',
+    )
+
+    // Offload is occurrence-scoped, not attachment-global: reusing the same
+    // durable attachment in a new user message must remain a live image.
+    await turn(handle.agent, [
+      { type: 'text', text: 'inspect the same attachment again as a new occurrence' },
+      { type: 'image', attachment: state.ref },
+    ])
+    assert.equal(adapter.requests.length, 2)
+    assert.ok(
+      retainedImageIds(adapter.requests[1].messages).includes(String(state.ref.attachmentId)),
+      'a new image occurrence must remain retained after cold resume',
+    )
+  } else {
+    assert.ok(
+      imageIds(adapter.requests[0].messages).includes(String(state.ref.attachmentId)),
+      'first post-restart delegated call must still receive the historical image block',
+    )
+  }
   await handle.dispose()
   await ctx.fiber.dispose()
   console.log('DSH preview native lifecycle after: OK')
