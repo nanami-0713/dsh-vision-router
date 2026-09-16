@@ -72,6 +72,7 @@ jobs:
               '@deepseek-ai/dsh-session-persistence-jsonl': v,
               '@deepseek-ai/dsh-agent': v,
               '@deepseek-ai/dsh-agent-loop': v,
+              '@deepseek-ai/dsh-compaction-image-offload': v,
               sharp: '0.35.3',
             },
           }, null, 2))
