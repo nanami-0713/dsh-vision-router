@@ -696,6 +696,8 @@ test('Test 7: injected descriptions forbid OCR-as-retry and demand stop-on-backe
   assert.ok(ocr.description.includes('engine / engine=auto always tries local'), ocr.description)
   assert.ok(ocr.description.includes('Structured 1+x follow-up does not change this order'), ocr.description)
   assert.ok(ocr.description.includes('Explicit engine=tesseract or engine=vision is always honored'), ocr.description)
+  assert.ok(ocr.description.includes('uncertain:true'), ocr.description)
+  assert.ok(ocr.description.includes('do not call more tools merely to re-prove the same text'), ocr.description)
   assert.ok(ocr.parameters.properties.engine.description.includes('always try local Tesseract first'))
   assert.ok(ocr.parameters.properties.engine.description.includes('Structured 1+x does not change this order'))
 
