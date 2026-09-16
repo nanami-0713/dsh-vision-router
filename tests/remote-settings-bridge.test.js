@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   REMOTE_SETTINGS_CHANNEL,
   REMOTE_SETTINGS_PERMISSION,
+  registerVisionRouterRemoteSettingsChannel,
   REMOTE_SETTINGS_READABLE_FIELDS,
   createVisionRouterRemoteSettingsHandler,
   installVisionRouterRemoteSettingsBridge,
@@ -168,6 +169,47 @@ test('local revocation blocks the next mutation without restart', async () => {
   })
   assert.equal(result.value.reason, 'permission-disabled')
   assert.equal(calls.some((entry) => entry[0] === 'mutate'), false)
+})
+
+
+test('remote settings RPC registration follows the active DSH Connection trust contract', () => {
+  const handler = async () => ({ ok: true, value: null })
+  const legacyCalls = []
+  const legacyDispose = registerVisionRouterRemoteSettingsChannel({
+    rpc: {
+      handle(...args) {
+        legacyCalls.push(args)
+        return 'legacy-dispose'
+      },
+    },
+  }, handler)
+  assert.equal(legacyDispose, 'legacy-dispose')
+  assert.equal(legacyCalls.length, 1)
+  assert.equal(legacyCalls[0].length, 3)
+  assert.equal(legacyCalls[0][0], REMOTE_SETTINGS_CHANNEL)
+  assert.equal(legacyCalls[0][1], handler)
+  assert.deepEqual(legacyCalls[0][2], { authority: 'trusted-host' })
+
+  const modernCalls = []
+  const modernDispose = registerVisionRouterRemoteSettingsChannel({
+    requestRejection() { return undefined },
+    rpc: {
+      handle(...args) {
+        modernCalls.push(args)
+        assert.equal(args.length, 2, 'modern Connection handle must not receive obsolete authority options')
+        return 'modern-dispose'
+      },
+    },
+  }, handler)
+  assert.equal(modernDispose, 'modern-dispose')
+  assert.deepEqual(modernCalls, [[REMOTE_SETTINGS_CHANNEL, handler]])
+})
+
+test('remote settings RPC registration rejects a missing Connection handle loudly', () => {
+  assert.throws(
+    () => registerVisionRouterRemoteSettingsChannel({ requestRejection() {} }, async () => ({ ok: true, value: null })),
+    /requires DSH Connection RPC handle/,
+  )
 })
 
 test('bridge remains behind the DSH trusted-host carrier fence', () => {
