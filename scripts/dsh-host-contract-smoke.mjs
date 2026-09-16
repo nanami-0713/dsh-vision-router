@@ -9,6 +9,7 @@ const requireFromHost = createRequire(path.join(hostDir, 'package.json'))
 const expectBatch = process.env.EXPECT_BATCH === 'true'
 const expectDimension = process.env.EXPECT_DIMENSION === 'true'
 const expectCurrent = process.env.EXPECT_CURRENT === 'true'
+const expectSessionEventRead = process.env.EXPECT_SESSION_EVENT_READ === 'true'
 
 const pluginEntry = requireFromHost.resolve('dsh-vision-router')
 const plugin = await import(pathToFileURL(pluginEntry).href)
@@ -45,6 +46,16 @@ const parsed = AttachmentLocal.Config({
 })
 if (expectDimension) {
   assert.equal(parsed.maxImageDimension, 10_000, 'Host must preserve maxImageDimension')
+}
+
+if (expectSessionEventRead) {
+  const sessionQueryEntry = requireFromHost.resolve('@deepseek-ai/dsh-session-query')
+  const sessionQuery = await import(pathToFileURL(sessionQueryEntry).href)
+  assert.equal(
+    typeof sessionQuery.default?.prototype?.readEvent,
+    'function',
+    'rc8+ Host contract must expose bounded async sessionQuery.readEvent()',
+  )
 }
 
 const llmEntry = requireFromHost.resolve('@deepseek-ai/dsh-llm')
@@ -179,4 +190,4 @@ if (expectCurrent) {
   assert.equal(toolsCtx.tools.schemas().some((item) => item.name === probeTool.name), false, 'tool disposer must clean up registration')
 }
 
-console.log(`DSH Host contract smoke passed: batch=${expectBatch} dimension=${expectDimension} current=${expectCurrent}`)
+console.log(`DSH Host contract smoke passed: batch=${expectBatch} dimension=${expectDimension} current=${expectCurrent} sessionEventRead=${expectSessionEventRead}`)
