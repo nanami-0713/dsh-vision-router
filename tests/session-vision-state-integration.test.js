@@ -29,10 +29,11 @@ test('session-visible paths use the bound memory view instead of the global comp
   assert.match(source, /for \(const id of ids\) scopedMemory\.set\(id, memory\)/)
 })
 
-test('attachment cache miss performs target-only durable log recovery', () => {
-  assert.match(sessionIndexSource, /core\.collectEventAttachmentRefs\(events\)\.find\(/)
-  assert.match(sessionIndexSource, /String\(ref\.attachmentId \?\? ref\.id\) === wanted/)
-  assert.match(sessionIndexSource, /store\.recordAttachments\(session, \[recovered\]\)/)
+test('attachment cache miss recovers only the requested durable ids', () => {
+  assert.match(sessionIndexSource, /const wanted = new Set\(ids\.map\(\(id\) => String\(id\)\)\)/)
+  assert.match(sessionIndexSource, /wanted\.has\(id\) && !found\.has\(id\)/)
+  assert.match(sessionIndexSource, /store\.recordAttachments\(session, \[\.\.\.found\.values\(\)\]\)/)
+  assert.doesNotMatch(sessionIndexSource, /store\.recordAttachments\(session, core\.collectEventAttachmentRefs\(events\)\)/)
 })
 
 test('high-resolution upload admission remains separate from execution budgets', async () => {

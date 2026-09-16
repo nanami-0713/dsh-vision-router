@@ -136,21 +136,102 @@ test('pre-step attachment indexing stays message-driven when no surface repair i
   assert.equal(store.lookupAttachment(session, 'current')?.attachmentId, 'current')
 })
 
-test('bounded attachment eviction recovers only through SessionVisionIndex without patching the store API', () => {
+test('bounded attachment eviction keeps sync lookup cache-only and recovers through async Session log read', async () => {
   const store = createSessionVisionStateStore({ attachmentMaxEntries: 1 })
   const originalLookup = store.lookupAttachment
-  const session = sessionWith([
+  const events = [
     { type: 'user/message', data: { refs: [ref('old')] } },
     { type: 'user/message', data: { refs: [ref('new')] } },
-  ])
-  const index = createSessionVisionIndex({ stateStore: store, core: coreStub() })
+  ]
+  let syncReads = 0
+  const session = sessionWith(events)
+  session.snapshotEvents = () => { syncReads += 1; throw new Error('deprecated sync history read') }
+  Object.defineProperty(session, 'events', {
+    configurable: true,
+    get() { syncReads += 1; throw new Error('deprecated bare history read') },
+  })
+  let asyncReads = 0
+  const index = createSessionVisionIndex({
+    stateStore: store,
+    core: coreStub(),
+    readSessionLog: async () => {
+      asyncReads += 1
+      return { supported: true, events }
+    },
+  })
 
   index.recordAttachments(session, [ref('old'), ref('new')])
   assert.equal(store.stateStats(session).attachments, 1)
   assert.equal(store.lookupAttachment(session, 'old'), undefined)
-  assert.equal(index.lookupAttachment(session, 'old')?.attachmentId, 'old')
+  assert.equal(index.lookupAttachment(session, 'old'), undefined, 'sync lookup must stay cache-only')
+  assert.equal(asyncReads, 0)
+  assert.equal((await index.resolveAttachment(session, 'old'))?.attachmentId, 'old')
+  assert.equal(asyncReads, 1)
+  assert.equal(syncReads, 0)
   assert.equal(store.lookupAttachment, originalLookup)
   assert.equal(store.stateStats(session).attachments, 1)
+})
+
+test('batch attachment recovery reads one Session log and returns all requested refs beyond cache capacity', async () => {
+  const events = [
+    { type: 'user/message', data: { refs: [ref('one'), ref('two'), ref('three')] } },
+  ]
+  let reads = 0
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore({ attachmentMaxEntries: 1 }),
+    core: coreStub(),
+    readSessionLog: async () => {
+      reads += 1
+      return { supported: true, events }
+    },
+  })
+  const session = { id: 'batch-recovery' }
+
+  const resolved = await index.resolveAttachments(session, ['one', 'two', 'three'])
+  assert.equal(reads, 1)
+  assert.deepEqual([...resolved.keys()], ['one', 'two', 'three'])
+  assert.equal(resolved.get('one')?.attachmentId, 'one')
+  assert.equal(resolved.get('two')?.attachmentId, 'two')
+  assert.equal(resolved.get('three')?.attachmentId, 'three')
+})
+
+test('advertised async attachment recovery failure never falls back to synchronous Session history', async () => {
+  let syncReads = 0
+  const session = sessionWith([])
+  session.snapshotEvents = () => { syncReads += 1; throw new Error('sync fallback forbidden') }
+  Object.defineProperty(session, 'events', {
+    configurable: true,
+    get() { syncReads += 1; throw new Error('sync fallback forbidden') },
+  })
+  const warnings = []
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    logger: { warn: (...args) => warnings.push(args) },
+    readSessionLog: async () => { throw new Error('transient SessionQuery failure') },
+  })
+
+  assert.equal(await index.resolveAttachment(session, 'missing'), undefined)
+  assert.equal(syncReads, 0)
+  assert.equal(warnings.length, 1)
+})
+
+test('explicitly unsupported async attachment recovery preserves the released Session-local fallback', async () => {
+  const session = sessionWith([
+    { type: 'user/message', data: { refs: [ref('legacy')] } },
+  ])
+  let capabilityChecks = 0
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionLog: async () => {
+      capabilityChecks += 1
+      return { supported: false }
+    },
+  })
+
+  assert.equal((await index.resolveAttachment(session, 'legacy'))?.attachmentId, 'legacy')
+  assert.equal(capabilityChecks, 1)
 })
 
 test('supported async surface reader repairs tool results without touching synchronous Session history', async () => {
@@ -407,6 +488,7 @@ test('pre-step boundary prepares downstream decision before mature core resumes'
   assert.equal(result, decision)
   assert.equal(observedCurrent?.attachmentId, 'current')
   assert.equal(observedDurableCache, undefined, 'pre-step must not eagerly index arbitrary durable history')
-  assert.equal(index.lookupAttachment(session, 'durable')?.attachmentId, 'durable')
+  assert.equal(index.lookupAttachment(session, 'durable'), undefined)
+  assert.equal((await index.resolveAttachment(session, 'durable'))?.attachmentId, 'durable')
   assert.equal(store.lookupAttachment(session, 'current')?.attachmentId, 'current')
 })

@@ -10,6 +10,7 @@ const expectBatch = process.env.EXPECT_BATCH === 'true'
 const expectDimension = process.env.EXPECT_DIMENSION === 'true'
 const expectCurrent = process.env.EXPECT_CURRENT === 'true'
 const expectSessionEventRead = process.env.EXPECT_SESSION_EVENT_READ === 'true'
+const expectSessionLogRead = process.env.EXPECT_SESSION_LOG_READ === 'true'
 
 const pluginEntry = requireFromHost.resolve('dsh-vision-router')
 const plugin = await import(pathToFileURL(pluginEntry).href)
@@ -55,6 +56,16 @@ if (expectSessionEventRead) {
     typeof sessionQuery.default?.prototype?.readEvent,
     'function',
     'rc8+ Host contract must expose bounded async sessionQuery.readEvent()',
+  )
+}
+
+if (expectSessionLogRead) {
+  const sessionQueryEntry = requireFromHost.resolve('@deepseek-ai/dsh-session-query')
+  const sessionQuery = await import(pathToFileURL(sessionQueryEntry).href)
+  assert.equal(
+    typeof sessionQuery.default?.prototype?.readSession,
+    'function',
+    'rc8+ Host contract must expose async replay-validated sessionQuery.readSession()',
   )
 }
 
@@ -190,4 +201,4 @@ if (expectCurrent) {
   assert.equal(toolsCtx.tools.schemas().some((item) => item.name === probeTool.name), false, 'tool disposer must clean up registration')
 }
 
-console.log(`DSH Host contract smoke passed: batch=${expectBatch} dimension=${expectDimension} current=${expectCurrent} sessionEventRead=${expectSessionEventRead}`)
+console.log(`DSH Host contract smoke passed: batch=${expectBatch} dimension=${expectDimension} current=${expectCurrent} sessionEventRead=${expectSessionEventRead} sessionLogRead=${expectSessionLogRead}`)

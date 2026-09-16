@@ -95,7 +95,7 @@ import {
   scaleBox,
   scaledDimensions,
 } from './lib/image-resource-governor.js'
-import { createSessionEventReader } from './lib/dsh-contract-compat.js'
+import { createSessionEventReader, createSessionLogReader } from './lib/dsh-contract-compat.js'
 import { createSessionVisionIndex } from './lib/session-vision-index.js'
 import { createSessionVisionStateStore } from './lib/session-vision-state.js'
 import {
@@ -570,6 +570,7 @@ export function apply(ctx, config = {}, runtime = {}) {
     config: () => current(),
     logger: ctx.logger,
     readSessionEvent: createSessionEventReader(ctx),
+    readSessionLog: createSessionLogReader(ctx),
   })
   const imageMemory = visionState.descriptionFacade
   // #208 follow-up complete: session-visible paths use scoped memory; only
@@ -2284,7 +2285,8 @@ export function apply(ctx, config = {}, runtime = {}) {
   // Host-owned proxy overrides are scoped by lib/legacy-global-proxy-boundary.js.
   // Core no longer owns or installs a process-wide proxy fetch implementation.
 
-  const lookupAttachment = (session, id) => sessionVisionIndex.lookupAttachment(session, id)
+  const resolveAttachment = (session, id) => sessionVisionIndex.resolveAttachment(session, id)
+  const resolveAttachments = (session, ids) => sessionVisionIndex.resolveAttachments(session, ids)
 
   // session -> { turn, startIndex, hasImage, routed, failures, lastError }
   const turnState = new WeakMap()
@@ -2675,6 +2677,10 @@ export function apply(ctx, config = {}, runtime = {}) {
           ...attachmentIds.map((id) => String(id)).filter((id) => isAttachmentIdInput(id)),
           ...paths.map((item) => String(item)).filter((item) => isAttachmentIdInput(item)),
         ])]
+        const attachmentSession = exec && exec.agent && exec.agent.session
+        const resolvedAttachmentRefs = materializableAttachmentIds.length > 0
+          ? await resolveAttachments(attachmentSession, materializableAttachmentIds)
+          : new Map()
 
         for (const path of paths) {
           let bytes
@@ -2683,7 +2689,7 @@ export function apply(ctx, config = {}, runtime = {}) {
             // readImageBytes accepts both filesystem paths and attachment ids
             // ("sha256:..."), so a model that passes an uploaded image's id as
             // a path gets the right pixels instead of a not-found error.
-            ;({ bytes, mediaType } = await readImageBytes(exec, path))
+            ;({ bytes, mediaType } = await readImageBytes(exec, path, resolvedAttachmentRefs))
           } catch (error) {
             throw new Error(
               `vision_describe: failed to read ${path} (${error && error.message ? error.message : String(error)})`,
@@ -2715,8 +2721,10 @@ export function apply(ctx, config = {}, runtime = {}) {
         }
 
         for (const id of attachmentIds) {
-          const session = exec && exec.agent && exec.agent.session
-          const ref = lookupAttachment(session, String(id))
+          const attachmentId = String(id)
+          const ref = isAttachmentIdInput(attachmentId)
+            ? resolvedAttachmentRefs.get(attachmentId)
+            : await resolveAttachment(attachmentSession, attachmentId)
           if (ref === undefined) {
             throw new Error(
               `vision_describe: unknown attachment id "${id}" (it must come from an image uploaded in this conversation)`,
@@ -3210,7 +3218,7 @@ ctx.logger?.info(
         ? config.artifactsDir
         : '.dsh-vision-router/artifacts'
 
-    const readImageBytes = async (exec, imagePath) => {
+    const readImageBytes = async (exec, imagePath, resolvedAttachmentRefs) => {
       const input = String(imagePath ?? '')
       let bytes
       let storedMediaType
@@ -3223,7 +3231,10 @@ ctx.logger?.info(
           throw new Error('vision-router: the attachment service is not available in this deployment')
         }
         const session = exec && exec.agent && exec.agent.session
-        const ref = lookupAttachment(session, input.trim())
+        const canonicalInput = input.trim()
+        const ref = resolvedAttachmentRefs instanceof Map
+          ? resolvedAttachmentRefs.get(canonicalInput)
+          : await resolveAttachment(session, canonicalInput)
         if (ref === undefined) {
           throw new Error(
             `vision-router: unknown attachment id "${input}" (it must come from an image uploaded in this conversation)`,
