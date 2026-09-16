@@ -115,21 +115,25 @@ test('state-store factories are independent and expose no implicit current owner
   assert.equal(second.lookupAttachment(session, 'first-only'), undefined)
 })
 
-test('incremental durable-log scan advances cursor and records only new attachment refs', () => {
+test('pre-step attachment indexing stays message-driven when no surface repair is pending', async () => {
   const store = createSessionVisionStateStore({ attachmentMaxEntries: 8 })
-  const session = sessionWith([
-    { type: 'user/message', data: { refs: [ref('a')] } },
-  ])
+  let historyReads = 0
+  const session = sessionWith([], [])
+  session.snapshotEvents = () => {
+    historyReads += 1
+    throw new Error('raw Session history must not be read on the idle pre-step hot path')
+  }
   const index = createSessionVisionIndex({ stateStore: store, core: coreStub() })
+  const current = ref('current')
+  const payload = {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'image', attachment: current }] }],
+  }
+  const decision = { kind: 'continue', messages: payload.messages }
 
-  index.scanEventLog(session)
-  assert.equal(store.getScannedEventSeq(session), 1)
-  assert.equal(store.lookupAttachment(session, 'a')?.attachmentId, 'a')
-
-  session.events.push({ type: 'user/message', data: { refs: [ref('b')] } })
-  index.scanEventLog(session)
-  assert.equal(store.getScannedEventSeq(session), 2)
-  assert.equal(store.lookupAttachment(session, 'b')?.attachmentId, 'b')
+  assert.equal(await index.prepareDecision(payload, decision), decision)
+  assert.equal(historyReads, 0)
+  assert.equal(store.lookupAttachment(session, 'current')?.attachmentId, 'current')
 })
 
 test('bounded attachment eviction recovers only through SessionVisionIndex without patching the store API', () => {
@@ -141,12 +145,31 @@ test('bounded attachment eviction recovers only through SessionVisionIndex witho
   ])
   const index = createSessionVisionIndex({ stateStore: store, core: coreStub() })
 
-  index.scanEventLog(session)
+  index.recordAttachments(session, [ref('old'), ref('new')])
   assert.equal(store.stateStats(session).attachments, 1)
   assert.equal(store.lookupAttachment(session, 'old'), undefined)
   assert.equal(index.lookupAttachment(session, 'old')?.attachmentId, 'old')
   assert.equal(store.lookupAttachment, originalLookup)
   assert.equal(store.stateStats(session).attachments, 1)
+})
+
+test('surface repair retries an unread batch instead of advancing its cursor', async () => {
+  const store = createSessionVisionStateStore()
+  let readable = false
+  const event = { type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } }
+  const session = sessionWith([], [0])
+  Object.defineProperty(session, 'events', {
+    configurable: true,
+    get() {
+      if (!readable) throw new Error('transient history read failure')
+      return [event]
+    },
+  })
+  const index = createSessionVisionIndex({ stateStore: store, core: coreStub() })
+
+  assert.equal(await index.repairToolResultSurface(session), 0)
+  readable = true
+  assert.equal(await index.repairToolResultSurface(session), 1)
 })
 
 test('tool-result surface repair is incremental and persists legacy Host replacement events', async () => {
@@ -242,10 +265,12 @@ test('pre-step boundary prepares downstream decision before mature core resumes'
   }
   const wrapped = installSessionVisionIndexBoundary(ctx, {}, coreStub(), { index })
 
-  let observedCursor = 0
+  let observedCurrent
+  let observedDurableCache
   wrapped.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
-    observedCursor = store.getScannedEventSeq(payload.agent.session)
+    observedCurrent = store.lookupAttachment(payload.agent.session, 'current')
+    observedDurableCache = store.lookupAttachment(payload.agent.session, 'durable')
     return decision
   })
 
@@ -262,7 +287,8 @@ test('pre-step boundary prepares downstream decision before mature core resumes'
   const result = await registered(payload, async () => decision)
 
   assert.equal(result, decision)
-  assert.equal(observedCursor, 1)
-  assert.equal(store.lookupAttachment(session, 'durable')?.attachmentId, 'durable')
+  assert.equal(observedCurrent?.attachmentId, 'current')
+  assert.equal(observedDurableCache, undefined, 'pre-step must not eagerly index arbitrary durable history')
+  assert.equal(index.lookupAttachment(session, 'durable')?.attachmentId, 'durable')
   assert.equal(store.lookupAttachment(session, 'current')?.attachmentId, 'current')
 })

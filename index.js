@@ -2275,8 +2275,9 @@ export function apply(ctx, config = {}, runtime = {}) {
     },
     'vision-router: reactive routing mounts',
   )
-  // #208: attachment refs, description memory and the event-log cursor are
-  // owned by the same bounded SessionVisionStateStore above.
+  // #208: attachment refs and description memory are owned by the same
+  // bounded SessionVisionStateStore above. Historical ref recovery stays
+  // target-only inside SessionVisionIndex rather than maintaining a log cursor.
 
   // Host-owned proxy overrides are scoped by lib/legacy-global-proxy-boundary.js.
   // Core no longer owns or installs a process-wide proxy fetch implementation.
