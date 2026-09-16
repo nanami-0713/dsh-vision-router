@@ -7,7 +7,7 @@ P0 records why each major compatibility seam exists and the condition that permi
 - **Reason:** preserve released attachment/settings/provider-ownership behavior across the supported DSH window.
 - **Host gap:** rc.6 has the single-attachment contract; later Hosts add batch save, max-dimension policy and newer settings/provider lifecycle behavior.
 - **First needed for:** minimum rc.6 support and the subsequent rc.7/rc.8 attachment migration.
-- **Feature detection:** `attachments.saveImages`, attachment `imageLimits`, settings registration/scope functions, and LLM registration methods. No version-string branch.
+- **Feature detection:** `attachments.saveImages`, attachment `imageLimits`, settings registration/scope functions, and LLM registration methods. The batch-attachment generation is also the semantic boundary where `deepseek-official` remains Host-owned instead of being reconstructed by DVR. No version-string branch.
 - **Removal condition:** minimum supported DSH natively exposes the required attachment/settings/provider seams and legacy profile overlays are outside support.
 - **Tests:** `rc6-rc7-compat`, `rc6-real-settings-persistence`, `attachment-admission-policy`, `dsh-host-capabilities`, minimum/legacy/current contract CI.
 

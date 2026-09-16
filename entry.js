@@ -60,6 +60,7 @@ export {
   attachmentContextForContract,
   ensureVisionAttachmentAdmissionPolicy,
   hasBatchAttachmentContract,
+  hostOwnsOfficialDeepSeekProvider,
   installHostSettingsCompatibility,
   installVisionAttachmentAdmissionPolicy,
   protectHostProviderOwnership,
