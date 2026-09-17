@@ -106,7 +106,13 @@ import {
   readResponseJsonBounded,
   readResponseTextBounded,
 } from './lib/http-body-limit.js'
-import { writeArtifactFile } from './lib/artifact-boundary.js'
+import {
+  ARTIFACT_HANDOFF_RUN_ID,
+  ARTIFACT_RUNS_DIR,
+  normalizeArtifactsDir,
+  writeArtifactFile,
+  writePersistentArtifactFile,
+} from './lib/artifact-boundary.js'
 import { stripTrailingSlashes } from './lib/string-normalization.js'
 import { streamWithLegacyGlobalProxyScope } from './lib/legacy-global-proxy-boundary.js'
 import { parseVersionComparator } from './lib/version-range.js'
@@ -3419,6 +3425,8 @@ ctx.logger?.info(
 
     const saveArtifact = async (exec, relPath, data) =>
       writeArtifactFile(workspaceOf(exec), artifactsRel, relPath, data)
+    const savePersistentArtifact = async (exec, relPath, data) =>
+      writePersistentArtifactFile(workspaceOf(exec), artifactsRel, relPath, data)
 
     const artifactStem = (imagePath, suffix) => artifactStemOf(imagePath, suffix)
 
@@ -3432,7 +3440,8 @@ ctx.logger?.info(
     deepToolDefs.push({
       name: 'vision_materialize',
       description:
-        'Copy an uploaded image attachment (sha256:...) or readable local image into the session workspace and return a real filesystem path. ' +
+        'Copy an uploaded image attachment (sha256:...) or readable local image into a stable content-addressed file in the session workspace. ' +
+        'Returns both an absolute path and a shorter workspaceRelativePath; prefer workspaceRelativePath in later tool or shell calls to avoid copying long internal paths. ' +
         'This tool performs NO vision model/network call. Use it after vision_describe/vision_bootstrap returns ok:false when a local OCR/parser accepts only file_path. ' +
         'Never guess the attachment store path or search for a same-named file.',
       parameters: {
@@ -3462,8 +3471,16 @@ ctx.logger?.info(
             : mediaType === 'image/gif'
               ? 'gif'
               : 'png'
-        const artifactName = `${artifactStem(source, 'materialized')}.${extension}`
-        const target = await saveArtifact(exec, artifactName, bytes)
+        const fingerprint = createHash('sha256').update(bytes).digest('hex').slice(0, 20)
+        const relativeArtifactPath = path.join('materialized', `${fingerprint}.${extension}`)
+        const artifactName = path.basename(relativeArtifactPath)
+        const target = await savePersistentArtifact(exec, relativeArtifactPath, bytes)
+        const workspaceRelativePath = path.join(
+          normalizeArtifactsDir(artifactsRel),
+          ARTIFACT_RUNS_DIR,
+          ARTIFACT_HANDOFF_RUN_ID,
+          relativeArtifactPath,
+        ).split(path.sep).join('/')
         if (session) {
           visionTurnMemory.recordDerivedArtifact(
             visionScopeOf(session),
@@ -3473,6 +3490,7 @@ ctx.logger?.info(
         }
         return JSON.stringify({
           path: target,
+          workspaceRelativePath,
           mediaType,
           bytes: bytes.length,
           ...(isAttachmentIdInput(source) ? { source } : {}),
