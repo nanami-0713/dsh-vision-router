@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { ROUND2_CASES, validateRound2Corpus } from '../quality/vision-round2/corpus.mjs'
+import { ROUND2_CASES, ROUND2_SUITE_REVISION, validateRound2Corpus } from '../quality/vision-round2/corpus.mjs'
 import { scoreRound2Result, summarizeRound2Results } from '../quality/vision-round2/scorer.mjs'
 import {
   assertSurface, cloneRuntimeTemplate, modelSelectionRequest, parseArgs, reasoningEffortOption, redactHostLog, requestSurface,
@@ -21,6 +21,15 @@ test('Round 2 seed corpus is small, balanced and deterministic', () => {
     uncertainty: 5,
     relevance_noise: 5,
   })
+})
+
+test('Round 2 suite v2 makes the multi-image ID contract unambiguous', () => {
+  assert.equal(ROUND2_SUITE_REVISION, 2)
+  const item = ROUND2_CASES.find(candidate => candidate.id === 'multi-id-01')
+  assert.ok(item)
+  assert.match(item.question, /完整ID/u)
+  assert.match(item.question, /保留ID中的字母前缀/u)
+  assert.deepEqual(item.expected, ['A=A17; B=B42'])
 })
 
 test('exact text scoring preserves case and confusable characters', () => {
