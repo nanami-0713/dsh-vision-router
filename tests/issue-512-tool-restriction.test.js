@@ -38,6 +38,9 @@ function makeHarness({ failRestriction = false } = {}) {
     },
   }
   const tools = {
+    get(name) {
+      return definitions.get(name)
+    },
     register(definition) {
       if (definition.name === 'vision_screenshot') {
         screenshotCandidate = definition
@@ -69,6 +72,7 @@ function makeHarness({ failRestriction = false } = {}) {
   const mode = installSessionVisionModeBoundary(ctx, config)
 
   function makeAgent(provider = 'deepseek-official') {
+    const activeRestrictions = []
     const agent = {
       session: {
         selectionState: {
@@ -85,6 +89,7 @@ function makeHarness({ failRestriction = false } = {}) {
       },
       tools: {
         get(name) {
+          if (activeRestrictions.some((deny) => deny.has(name))) return undefined
           return definitions.get(name)
         },
         restrict(filter) {
@@ -99,7 +104,15 @@ function makeHarness({ failRestriction = false } = {}) {
               ].join(', ')}`,
             )
           }
-          return () => {}
+          const record = new Set(deny)
+          activeRestrictions.push(record)
+          let active = true
+          return () => {
+            if (!active) return
+            active = false
+            const index = activeRestrictions.indexOf(record)
+            if (index >= 0) activeRestrictions.splice(index, 1)
+          }
         },
       },
     }
@@ -148,6 +161,22 @@ test('issue #512: conditional owned tools are projected to current Host registra
     ['vision_describe'],
   ])
   assert.equal(harness.warnings.length, 0)
+})
+
+test('issue #512: repeated OFF sync cannot unmask a restriction through scoped get()', () => {
+  const harness = makeHarness()
+  harness.mode.ctx.tools.register({ name: 'vision_describe', async execute() {} })
+
+  const agent = harness.makeAgent()
+  harness.handlers.get('agent/created')?.({ agent })
+  assert.equal(agent.ctx.tools.get('vision_describe'), undefined)
+  assert.deepEqual(harness.restrictCalls, [['vision_describe']])
+
+  // Real DSH get() is restriction-aware. The second sync must consult the
+  // unscoped global registry rather than mistake its own mask for unregistration.
+  harness.handlers.get('agent/status')?.({ agent, status: 'running' })
+  assert.equal(agent.ctx.tools.get('vision_describe'), undefined)
+  assert.deepEqual(harness.restrictCalls, [['vision_describe']])
 })
 
 test('issue #512: genuine restriction failures keep bounded diagnostics', () => {
