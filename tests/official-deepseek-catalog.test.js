@@ -114,3 +114,35 @@ test('official DeepSeek catalog authority is scoped to adapter identity', async 
   assert.equal(callsA, 1)
   assert.equal(callsB, 1)
 })
+
+
+test('official DeepSeek catalog briefly backs off repeated cold-outage reads without persisting failure', async () => {
+  let calls = 0
+  const adapter = {
+    async listModels() {
+      calls += 1
+      throw new Error('503')
+    },
+  }
+  let now = 1_000
+  const options = {
+    now: () => now,
+    failureBackoffMs: 100,
+  }
+  await assert.rejects(
+    getOfficialDeepSeekCatalog(adapter, options),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  await assert.rejects(
+    getOfficialDeepSeekCatalog(adapter, options),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  assert.equal(calls, 1)
+
+  now = 1_101
+  await assert.rejects(
+    getOfficialDeepSeekCatalog(adapter, options),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  assert.equal(calls, 2)
+})
