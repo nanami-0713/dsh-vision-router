@@ -831,6 +831,11 @@ test('issue #504 follow-up: official catalog outage does not block Core-owned co
         providers: [
           { provider: 'zhipu', model: 'glm-4.6v-flash', fallbacks: [] },
         ],
+        localOllama: {
+          enabled: true,
+          baseURL: 'http://127.0.0.1:11434/v1',
+          model: 'qwen2.5-vl',
+        },
       }
     },
   }
