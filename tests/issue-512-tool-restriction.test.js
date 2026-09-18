@@ -10,6 +10,7 @@ function makeHarness({ failRestriction = false } = {}) {
   const definitions = new Map()
   const restrictCalls = []
   const warnings = []
+  const scopedByAgent = new WeakMap()
   let screenshotCandidate
 
   const config = {
@@ -81,6 +82,8 @@ function makeHarness({ failRestriction = false } = {}) {
         },
       },
     }
+    const scopedDefinitions = new Map()
+    scopedByAgent.set(agent, scopedDefinitions)
     agent.ctx = {
       logger: {
         warn(...args) {
@@ -89,6 +92,7 @@ function makeHarness({ failRestriction = false } = {}) {
       },
       tools: {
         get(name) {
+          if (scopedDefinitions.has(name)) return scopedDefinitions.get(name)
           if (activeRestrictions.some((deny) => deny.has(name))) return undefined
           return definitions.get(name)
         },
@@ -126,6 +130,11 @@ function makeHarness({ failRestriction = false } = {}) {
     restrictCalls,
     warnings,
     makeAgent,
+    shadowForAgent(agent, name, definition) {
+      const scoped = scopedByAgent.get(agent)
+      assert.ok(scoped)
+      scoped.set(name, definition)
+    },
     mountScreenshot() {
       assert.ok(screenshotCandidate)
       definitions.set('vision_screenshot', screenshotCandidate)
@@ -194,6 +203,42 @@ test('issue #512: genuine restriction failures keep bounded diagnostics', () => 
   assert.doesNotMatch(rendered, /foreign_119/)
 })
 
+
+test('issue #512: a foreign Agent-scoped shadow survives DVR global restriction and assembly projection', async () => {
+  const harness = makeHarness()
+  harness.mode.ctx.tools.register({ name: 'vision_describe', async execute() {} })
+
+  const agent = harness.makeAgent()
+  const foreign = {
+    name: 'vision_describe',
+    async execute() {
+      return 'foreign scoped describe'
+    },
+  }
+  harness.shadowForAgent(agent, 'vision_describe', foreign)
+
+  harness.handlers.get('agent/created')?.({ agent })
+  assert.deepEqual(harness.restrictCalls, [['vision_describe']])
+  assert.equal(agent.ctx.tools.get('vision_describe'), foreign)
+
+  const assemble = harness.handlers.get('system-prompt/assemble')
+  assert.ok(assemble)
+  const assembly = {
+    tools: [
+      { name: 'vision_describe' },
+      { name: 'foreign_tool' },
+    ],
+  }
+  const projected = await assemble(
+    assembly,
+    { agent },
+    async () => assembly,
+  )
+  assert.deepEqual(projected.tools.map((tool) => tool.name), [
+    'vision_describe',
+    'foreign_tool',
+  ])
+})
 
 test('issue #512: a foreign tool that reuses an unmounted DVR name is not restricted or filtered', async () => {
   const harness = makeHarness()
