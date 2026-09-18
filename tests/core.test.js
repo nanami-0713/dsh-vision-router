@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import sharp from 'sharp'
 import { parseVersionComparator } from '../lib/version-range.js'
 import { directSessionAffinityHeaders, sessionIdentityOf, wireSessionAffinityId } from '../lib/session-affinity.js'
@@ -3969,9 +3970,22 @@ test('vision_materialize exposes an authorized attachment as a workspace file (i
   assert.equal(output.mediaType, 'image/png')
   assert.equal(output.safeWorkspaceCopy, true)
   assert.equal(output.source, attachment.attachmentId)
-  assert.match(output.path, /materialized.*\.png$/)
+  const portablePath = output.path.split(path.sep).join('/')
+  assert.match(portablePath, /\/\.runs\/\.vision-run-handoff\/materialized\/[0-9a-f]{20}\.png$/u)
+  assert.equal(
+    output.workspaceRelativePath.startsWith(`${artifactsDir}/.runs/.vision-run-handoff/materialized/`),
+    true,
+  )
+  assert.match(output.workspaceRelativePath, /[0-9a-f]{20}\.png$/u)
   const { readFile, rm } = await import('node:fs/promises')
   assert.deepEqual(await readFile(output.path), Buffer.from('not-a-real-image'))
+  assert.deepEqual(
+    await readFile(path.resolve(session.header.cwd, output.workspaceRelativePath)),
+    Buffer.from('not-a-real-image'),
+  )
+  const repeated = JSON.parse(await tool.execute({ image: attachment.attachmentId }, { agent: { session } }))
+  assert.equal(repeated.path, output.path)
+  assert.equal(repeated.workspaceRelativePath, output.workspaceRelativePath)
   await rm(new URL('../' + artifactsDir + '/', import.meta.url), { recursive: true, force: true })
 })
 

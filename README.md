@@ -246,7 +246,7 @@ The diagram covers the eleven image-processing tools. `vision_present` (durable 
 |---|---|---|
 | `vision_bootstrap` | Optional 1+x structured first visual pass; establishes task-independent evidence before at least one follow-up vision call | — |
 | `vision_describe` | Image Q&A / multi-image compare / structured-evidence JSON mode (summary + layout regions + entity inventory + verbatim transcription) | — |
-| `vision_materialize` | Copy an authorized attachment into the session workspace and return a filesystem path for local OCR/parser fallbacks; no vision/network call | image copy |
+| `vision_materialize` | Copy an authorized attachment into a stable content-addressed workspace handoff file and return absolute + short workspace-relative paths for local OCR/parser fallbacks; no vision/network call | image copy |
 | `vision_ground` | Locate a target → **original-pixel box x1/y1/x2/y2** | annotated PNG (optional) |
 | `vision_detect` | Numbered inventory of every element of a kind (buttons/inputs/links…) with original-pixel boxes | annotated PNG with numbered boxes |
 | `vision_crop` | Crop and zoom into a pixel box | PNG |
