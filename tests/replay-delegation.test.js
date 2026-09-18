@@ -746,10 +746,7 @@ test('issue #504: official catalog outage stays fail-closed before any trusted s
       return undefined
     },
   }
-  const wrapped = contextWithDelegatedReplay(ctx, {
-    wrapperRoute: 'deepseek-vision',
-    visionConfig: fallbackVisionConfig,
-  })
+  const wrapped = contextWithDelegatedReplay(ctx)
   wrapped.llm.registerAdapter(['deepseek-vision'], {
     async listModels() { return [] },
     async resolveModel(_provider, model) {
@@ -871,7 +868,10 @@ test('issue #504 follow-up: official catalog outage does not block Core-owned co
       return name === 'settings' ? settings : undefined
     },
   }
-  const wrapped = contextWithDelegatedReplay(ctx)
+  const wrapped = contextWithDelegatedReplay(ctx, {
+    wrapperRoute: 'deepseek-vision',
+    visionConfig: fallbackVisionConfig,
+  })
   wrapped.llm.registerAdapter(['deepseek-vision'], {
     async listModels() { return [] },
     async resolveModel(_provider, model) {
