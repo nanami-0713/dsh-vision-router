@@ -113,6 +113,7 @@ import {
   writeArtifactFile,
   writePersistentArtifactFile,
 } from './lib/artifact-boundary.js'
+import { visionDescribeSuccessContext } from './lib/vision-evidence-guidance.js'
 import { stripTrailingSlashes } from './lib/string-normalization.js'
 import { streamWithLegacyGlobalProxyScope } from './lib/legacy-global-proxy-boundary.js'
 import { parseVersionComparator } from './lib/version-range.js'
@@ -2417,6 +2418,17 @@ export function apply(ctx, config = {}, runtime = {}) {
     }
     state.legacyStartIndex = events.length
   }
+
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const downstream = await next()
+    if (downstream?.kind !== 'accept') return downstream
+    const context = visionDescribeSuccessContext(exec, result)
+    if (!context) return downstream
+    return {
+      ...downstream,
+      additionalContexts: [context, ...(downstream.additionalContexts ?? [])],
+    }
+  })
 
   ctx.on('agent/pre-step', async (payload, next) => {
     let decision = await next()
