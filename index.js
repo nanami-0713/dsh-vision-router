@@ -3331,6 +3331,30 @@ ctx.logger?.info(
         ? config.artifactsDir
         : '.dsh-vision-router/artifacts'
 
+    const resolveOcrImageInput = (args = {}) => {
+      const hasImageField = Object.prototype.hasOwnProperty.call(args, 'image')
+      const image = typeof args.image === 'string' ? args.image : undefined
+      const hasAttachmentIdsField = Object.prototype.hasOwnProperty.call(args, 'attachmentIds')
+      const attachmentIds = Array.isArray(args.attachmentIds) ? args.attachmentIds : []
+
+      if (hasImageField && (image === undefined || image.trim() === '')) {
+        throw new Error('vision_ocr: image must be a non-empty path or attachment id')
+      }
+      if (hasAttachmentIdsField && !Array.isArray(args.attachmentIds)) {
+        throw new Error('vision_ocr: attachmentIds must be an array containing exactly one uploaded attachment id')
+      }
+      if (hasImageField && hasAttachmentIdsField) {
+        throw new Error('vision_ocr: provide exactly one image using image or attachmentIds, not both')
+      }
+      if (hasImageField) return image
+      if (attachmentIds.length !== 1 || !isAttachmentIdInput(attachmentIds[0])) {
+        throw new Error(
+          'vision_ocr: provide one image via image or exactly one uploaded attachment id via attachmentIds',
+        )
+      }
+      return String(attachmentIds[0]).trim()
+    }
+
     const readImageBytes = async (exec, imagePath, resolvedAttachmentRefs) => {
       const input = String(imagePath ?? '')
       let bytes
@@ -4156,24 +4180,34 @@ ctx.logger?.info(
         'quotation, forms/contracts, table digits, CAPTCHAs). Local OCR uses a bounded layout review when ' +
         'the first pass looks weak. If the result has uncertain:true, cross-check the ambiguous text when ' +
         'another visual backend is available; otherwise state the remaining uncertainty. If uncertain:false ' +
-        'and the text directly answers the user, do not call more tools merely to re-prove the same text.',
+        'and the text directly answers the user, do not call more tools merely to re-prove the same text. ' +
+        'INPUT: `image` is the canonical single-image argument. For compatibility with other Vision Router ' +
+        'tools, one uploaded image may instead be passed as `attachmentIds: [id]`; do not pass both forms ' +
+        'or more than one attachment id.',
       parameters: {
         type: 'object',
         properties: {
-          image: { type: 'string', description: 'Local image path (png/jpeg/webp/gif), workspace-relative or absolute; or the attachment id (e.g. "sha256:...") of an image uploaded in this conversation' },
+          image: { type: 'string', description: 'Canonical single-image input: local image path (png/jpeg/webp/gif), workspace-relative or absolute; or the attachment id (e.g. "sha256:...") of an image uploaded in this conversation' },
+          attachmentIds: {
+            type: 'array',
+            items: { type: 'string' },
+            minItems: 1,
+            maxItems: 1,
+            description: 'Compatibility alias for one uploaded image attachment id. Use exactly one sha256:... id. Do not combine with image.',
+          },
           engine: {
             type: 'string',
             description: '"auto" (default): always try local Tesseract first, then fall back to the vision model if local OCR fails or returns no text. Structured 1+x does not change this order; use explicit "tesseract"/"vision" to force an engine.',
           },
         },
-        required: ['image'],
         additionalProperties: false,
       },
       output: stringOutput,
       async execute(args, exec) {
+        const imageInput = resolveOcrImageInput(args)
         const session = exec?.agent?.session
         const engine = resolveVisionOcrEngine(args.engine)
-        const degraded = degradedLocalState(session, args.image)
+        const degraded = degradedLocalState(session, imageInput)
         if (
           engine !== 'vision' &&
           degraded.active &&
@@ -4184,7 +4218,7 @@ ctx.logger?.info(
             `the degraded local evidence budget for this image is exhausted after ${DEGRADED_LOCAL_REFINEMENT_LIMIT} refinement call(s); answer from existing evidence and state any remaining uncertainty`,
           )
         }
-        const { bytes, mediaType } = await readImageBytes(exec, args.image)
+        const { bytes, mediaType } = await readImageBytes(exec, imageInput)
         // ONE OCR budget shared by tesseract AND the vision fallback: tesseract
         // gets a capped slice (never more than 12s), the vision model only the
         // remainder. The two timeouts can never stack into a multi-minute wait.
@@ -4199,7 +4233,7 @@ ctx.logger?.info(
               if (session) {
                 visionTurnMemory.recordLocalOcr(
                   visionScopeOf(session),
-                  visionEvidenceSourceKey(args.image),
+                  visionEvidenceSourceKey(imageInput),
                   { uncertain: local.uncertain === true },
                 )
               }
