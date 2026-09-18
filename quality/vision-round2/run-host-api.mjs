@@ -28,7 +28,7 @@ function usage() {
     `  --history-dir <dir>        per-case history + Host logs\n` +
     `  --provider <id>            session model provider (default: ${DEFAULT_PROVIDER})\n` +
     `  --model <id>               session model id (default: ${DEFAULT_MODEL})\n` +
-    `  --reasoning-effort <value> selection reasoning effort (default: high)\n` +
+    `  --reasoning-effort <value> selection reasoning effort (default: high; use "none" to omit)\n` +
     `  --ids <a,b,...>            run only these case ids\n` +
     `  --category <name>          run one category\n` +
     `  --timeout-ms <n>           one case wall-clock bound (default: ${DEFAULT_TIMEOUT_MS})\n` +
@@ -286,6 +286,20 @@ export function requestSurface(events) {
   }
 }
 
+export function reasoningEffortOption(value) {
+  if (value === 'none') return undefined
+  return value || 'high'
+}
+
+export function modelSelectionRequest(sessionId, options) {
+  return {
+    sessionId,
+    provider: options.provider,
+    model: options.model,
+    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
+  }
+}
+
 export function assertSurface(surface, options, caseId) {
   if (surface.headers === 0) throw new Error(`${caseId}: no request/header reached the model`)
   if (surface.provider !== options.provider || surface.model !== options.model) {
@@ -334,12 +348,7 @@ async function runCase(item, options) {
     const sessionId = created?.sessionId
     if (!sessionId) throw new Error(`${item.id}: session/create returned no sessionId`)
     await remoteRpc(auth, 'session/selectModel', {
-      request: {
-        sessionId,
-        provider: options.provider,
-        model: options.model,
-        reasoningEffort: options.reasoningEffort,
-      },
+      request: modelSelectionRequest(sessionId, options),
     })
     const content = []
     for (const imageName of item.images) {
@@ -430,7 +439,7 @@ export async function main() {
     historyDir,
     provider: raw.provider || DEFAULT_PROVIDER,
     model: raw.model || DEFAULT_MODEL,
-    reasoningEffort: raw['reasoning-effort'] || 'high',
+    reasoningEffort: reasoningEffortOption(raw['reasoning-effort']),
     timeoutMs: positiveInteger(raw['timeout-ms'], DEFAULT_TIMEOUT_MS, '--timeout-ms'),
     startupTimeoutMs: positiveInteger(raw['startup-timeout-ms'], DEFAULT_STARTUP_TIMEOUT_MS, '--startup-timeout-ms'),
     pollMs: positiveInteger(raw['poll-ms'], DEFAULT_POLL_MS, '--poll-ms'),

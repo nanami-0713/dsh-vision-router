@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { ROUND2_CASES, validateRound2Corpus } from '../quality/vision-round2/corpus.mjs'
 import { scoreRound2Result, summarizeRound2Results } from '../quality/vision-round2/scorer.mjs'
 import {
-  assertSurface, cloneRuntimeTemplate, parseArgs, redactHostLog, requestSurface,
+  assertSurface, cloneRuntimeTemplate, modelSelectionRequest, parseArgs, reasoningEffortOption, redactHostLog, requestSurface,
 } from '../quality/vision-round2/run-host-api.mjs'
 
 test('Round 2 seed corpus is small, balanced and deterministic', () => {
@@ -96,6 +96,33 @@ test('Host API runner parses explicit benchmark selectors and rejects unknown fl
     resume: true,
   })
   assert.throws(() => parseArgs(['--mystery']), /unknown option/u)
+})
+
+test('Host API runner can omit reasoning effort for models that do not expose reasoning levels', () => {
+  assert.equal(reasoningEffortOption(undefined), 'high')
+  assert.equal(reasoningEffortOption('medium'), 'medium')
+  assert.equal(reasoningEffortOption('off'), 'off')
+  assert.equal(reasoningEffortOption('none'), undefined)
+
+  assert.deepEqual(modelSelectionRequest('session-1', {
+    provider: 'packy-vision',
+    model: 'deepseek-v4-flash',
+    reasoningEffort: undefined,
+  }), {
+    sessionId: 'session-1',
+    provider: 'packy-vision',
+    model: 'deepseek-v4-flash',
+  })
+  assert.deepEqual(modelSelectionRequest('session-2', {
+    provider: 'deepseek-vision',
+    model: 'deepseek-flash',
+    reasoningEffort: 'high',
+  }), {
+    sessionId: 'session-2',
+    provider: 'deepseek-vision',
+    model: 'deepseek-flash',
+    reasoningEffort: 'high',
+  })
 })
 
 test('Host API runner clones only reusable DSH profile state', async () => {

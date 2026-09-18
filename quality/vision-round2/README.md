@@ -78,3 +78,5 @@ For a manual or non-Host experiment, `pnpm quality:round2:template` still create
 ## Change policy for 2.2
 
 The first reference version is v2.1.7. Production changes should target an observed failure class and be compared against the same suite revision, DSH version, model/provider configuration, timeout, and provider-availability conditions. New fixtures should represent a distinct real failure mode, not inflate the suite with easy variants.
+
+Use `--reasoning-effort none` when the selected model exposes no reasoning levels; the runner then omits the field instead of sending a synthetic effort.
