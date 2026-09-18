@@ -901,8 +901,23 @@ test('issue #504 follow-up: official catalog outage does not block Core-owned co
   )
 
   await assert.rejects(
+    registeredAdapter.resolveModel('deepseek-vision', 'relay/vendor-model'),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  assert.equal(
+    coreResolveCalls,
+    2,
+    'a slash-containing relay id that is not a config-derived Core pair must not bypass identity checks',
+  )
+  assert.equal(officialListCalls, 1)
+
+  await assert.rejects(
     registeredAdapter.resolveModel('deepseek-vision', 'arbitrary-id'),
     (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
   )
-  assert.equal(officialListCalls, 1)
+  assert.equal(
+    officialListCalls,
+    1,
+    'the short outage backoff should also coalesce the second rejected identity lookup',
+  )
 })
