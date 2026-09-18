@@ -746,7 +746,10 @@ test('issue #504: official catalog outage stays fail-closed before any trusted s
       return undefined
     },
   }
-  const wrapped = contextWithDelegatedReplay(ctx)
+  const wrapped = contextWithDelegatedReplay(ctx, {
+    wrapperRoute: 'deepseek-vision',
+    visionConfig: fallbackVisionConfig,
+  })
   wrapped.llm.registerAdapter(['deepseek-vision'], {
     async listModels() { return [] },
     async resolveModel(_provider, model) {
@@ -830,21 +833,23 @@ test('issue #504 follow-up: official catalog outage does not block Core-owned co
       return { provider: 'deepseek-official', id: model, name: model, inputModalities: ['text'] }
     },
   }
+  const fallbackVisionConfig = {
+    wrapperRoute: 'deepseek-vision',
+    routing: true,
+    providers: [
+      { provider: 'zhipu', model: 'glm-4.6v-flash', fallbacks: [] },
+    ],
+    localOllama: {
+      enabled: true,
+      baseURL: 'http://127.0.0.1:11434/v1',
+      model: 'qwen2.5-vl',
+    },
+  }
   const settings = {
-    get(namespace) {
-      if (namespace !== 'vision-router') return undefined
-      return {
-        wrapperRoute: 'deepseek-vision',
-        routing: true,
-        providers: [
-          { provider: 'zhipu', model: 'glm-4.6v-flash', fallbacks: [] },
-        ],
-        localOllama: {
-          enabled: true,
-          baseURL: 'http://127.0.0.1:11434/v1',
-          model: 'qwen2.5-vl',
-        },
-      }
+    get() {
+      // Simulate cold/plugin-start ordering before the live Settings namespace
+      // is readable. Wrapper authority must fall back to the composition config.
+      return undefined
     },
   }
   const ctx = {
