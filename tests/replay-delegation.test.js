@@ -913,6 +913,18 @@ test('issue #504 follow-up: official catalog outage does not block Core-owned co
     'Core-owned composite routing must not depend on the official DeepSeek directory',
   )
 
+  fallbackVisionConfig.routing = false
+  await assert.rejects(
+    registeredAdapter.resolveModel('deepseek-vision', 'zhipu/glm-4.6v-flash'),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  assert.equal(
+    coreResolveCalls,
+    2,
+    'routing-off must not use the composite bypass',
+  )
+  assert.equal(officialListCalls, 1)
+
   await assert.rejects(
     registeredAdapter.resolveModel('deepseek-vision', 'relay/vendor-model'),
     (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
@@ -922,7 +934,11 @@ test('issue #504 follow-up: official catalog outage does not block Core-owned co
     2,
     'a slash-containing relay id that is not a config-derived Core pair must not bypass identity checks',
   )
-  assert.equal(officialListCalls, 1)
+  assert.equal(
+    officialListCalls,
+    1,
+    'the short outage backoff should coalesce rejected identity lookups',
+  )
 
   await assert.rejects(
     registeredAdapter.resolveModel('deepseek-vision', 'arbitrary-id'),
