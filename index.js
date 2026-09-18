@@ -390,6 +390,7 @@ import {
   posterizeSvgColor,
   resolveVisionOcrEngine,
   ocrWithTesseract,
+  ocrWithTesseractAdaptive,
   estimateTokens,
   estimateMessages,
   trimMessagesToBudget,
@@ -486,6 +487,7 @@ export {
   posterizeSvgColor,
   resolveVisionOcrEngine,
   ocrWithTesseract,
+  ocrWithTesseractAdaptive,
   estimateTokens,
   estimateMessages,
   trimMessagesToBudget,
@@ -3182,7 +3184,7 @@ ctx.logger?.info(
             tool: 'vision_materialize',
             attachmentIds: materializableAttachmentIds,
             advice:
-              'If another local/OCR tool requires a filesystem path, call vision_materialize for the uploaded attachment id. Do not guess a filename or the attachment store path.',
+              'For text transcription, call vision_ocr with {"image":"<attachment id>","engine":"tesseract"}; vision_ocr accepts uploaded attachment ids directly. Use vision_materialize only when a separate non-Vision-Router local parser genuinely requires a filesystem path. Do not guess a filename or the attachment store path.',
           }
         }
         return JSON.stringify(baseFailure)
@@ -4085,8 +4087,10 @@ ctx.logger?.info(
         'ACCURACY: OCR transcribes characters verbatim and is systematically unreliable for confusable ' +
         'glyphs (1/l, 0/O), spacing and line breaks; prefer vision_describe / vision_detect for semantic ' +
         'understanding and use OCR only when exact verbatim text is required (executable code, exact ' +
-        'quotation, forms/contracts, table digits, CAPTCHAs). Treat OCR output as evidence to verify, ' +
-        'never as ground truth.',
+        'quotation, forms/contracts, table digits, CAPTCHAs). Local OCR uses a bounded layout review when ' +
+        'the first pass looks weak. If the result has uncertain:true, cross-check the ambiguous text when ' +
+        'another visual backend is available; otherwise state the remaining uncertainty. If uncertain:false ' +
+        'and the text directly answers the user, do not call more tools merely to re-prove the same text.',
       parameters: {
         type: 'object',
         properties: {
@@ -4110,9 +4114,25 @@ ctx.logger?.info(
         const tesseractSlice = Math.min(12000, deadline.remaining())
         if (engine !== 'vision') {
           try {
-            const text = await ocrWithTesseract(bytes, tesseractSlice)
-            if (text.trim() !== '') return JSON.stringify({ engine: 'tesseract', text: text.trim() })
-            if (engine === 'tesseract') return JSON.stringify({ engine: 'tesseract', text: '' })
+            const local = await ocrWithTesseractAdaptive(bytes, tesseractSlice)
+            if (local.text.trim() !== '') {
+              return JSON.stringify({
+                engine: 'tesseract',
+                text: local.text.trim(),
+                uncertain: local.uncertain === true,
+                ...(local.uncertain === true
+                  ? {
+                    review: {
+                      psm: local.psm,
+                      attemptedPsms: local.attemptedPsms,
+                      quality: Number(local.quality.toFixed(2)),
+                      riskyTokens: local.riskyTokens,
+                    },
+                  }
+                  : {}),
+              })
+            }
+            if (engine === 'tesseract') return JSON.stringify({ engine: 'tesseract', text: '', uncertain: true })
           } catch (error) {
             if (engine === 'tesseract') {
               throw new Error(

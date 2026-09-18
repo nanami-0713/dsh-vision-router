@@ -3969,6 +3969,8 @@ test('vision_describe failure contract points attachment ids at vision_materiali
   const source = (await import('node:fs')).readFileSync(new URL('../index.js', import.meta.url), 'utf8')
   assert.match(source, /degradedAccess/)
   assert.match(source, /tool: 'vision_materialize'/)
+  assert.match(source, /vision_ocr with \{\"image\":\"<attachment id>\"/)
+  assert.match(source, /Use vision_materialize only when a separate non-Vision-Router local parser genuinely requires a filesystem path/)
   assert.match(source, /Do not guess a filename or the attachment store path/)
 })
 
