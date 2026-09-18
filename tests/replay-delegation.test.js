@@ -377,8 +377,9 @@ test('main wrapper listModels restores only config-driven composite rows while p
 
   // Core-like wrapper. Like the real core it mirrors only the two DeepSeek
   // ids from the (stale) relay catalog, and appends config-driven composite
-  // rows only when whole-turn routing is on. It deliberately leaks a stray
-  // non-composite Kimi row to prove the boundary drops it.
+  // rows only when whole-turn routing is on. It deliberately leaks both a
+  // non-composite Kimi row and a slash-shaped relay row to prove neither can
+  // masquerade as a config-derived composite route.
   const coreWrapper = {
     async listModels() {
       const rows = [
@@ -394,6 +395,12 @@ test('main wrapper listModels restores only config-driven composite rows while p
             inputModalities: ['text', 'image'],
           },
           { provider: 'deepseek-vision', id: 'k3', name: 'Kimi K3', inputModalities: ['text', 'image'] },
+          {
+            provider: 'deepseek-vision',
+            id: 'relay/vendor-model',
+            name: 'Relay Vendor Model',
+            inputModalities: ['text', 'image'],
+          },
         )
       }
       return rows
@@ -424,6 +431,7 @@ test('main wrapper listModels restores only config-driven composite rows while p
   assert.ok(idsOn.includes('deepseek-flash') && idsOn.includes('deepseek-v4-pro') && idsOn.includes('deepseek-v4-flash'))
   assert.ok(idsOn.includes('zhipu/glm-4.6v-flash'), 'authorized composite row kept')
   assert.ok(!idsOn.includes('k3'), 'stray non-composite row dropped')
+  assert.ok(!idsOn.includes('relay/vendor-model'), 'slash-shaped relay row dropped')
   assert.ok(!idsOn.some((id) => id.includes('kimi') || id.includes('xiaomi')), 'DSH-only providers never listed')
 
   // P0 surface stays intact during a vision tool call: host-wide discovery is
