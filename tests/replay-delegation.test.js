@@ -807,3 +807,85 @@ test('issue #504: wrapper list/resolve share one fresh official catalog read', a
   assert.equal(resolved.id, 'deepseek-v4-pro')
   assert.equal(listCalls, 1)
 })
+
+
+test('issue #504 follow-up: official catalog outage does not block a configured composite wrapper model', async () => {
+  let registeredAdapter
+  let officialListCalls = 0
+  let coreResolveCalls = 0
+  const official = {
+    async listModels() {
+      officialListCalls += 1
+      throw new Error('503 catalog unavailable')
+    },
+    async resolveModel(_provider, model) {
+      return { provider: 'deepseek-official', id: model, name: model, inputModalities: ['text'] }
+    },
+  }
+  const settings = {
+    get(namespace) {
+      if (namespace !== 'vision-router') return undefined
+      return {
+        wrapperRoute: 'deepseek-vision',
+        routing: true,
+        providers: [
+          { provider: 'zhipu', model: 'glm-4.6v-flash', fallbacks: [] },
+        ],
+      }
+    },
+  }
+  const ctx = {
+    llm: {
+      registration(provider) {
+        return provider === 'deepseek-official'
+          ? { retryPolicy: 'deepseek-retry', adapter: official }
+          : undefined
+      },
+      registerAdapter(_providers, adapter) {
+        registeredAdapter = adapter
+        return () => {}
+      },
+      async *stream() {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+    get(name) {
+      return name === 'settings' ? settings : undefined
+    },
+  }
+  const wrapped = contextWithDelegatedReplay(ctx)
+  wrapped.llm.registerAdapter(['deepseek-vision'], {
+    async listModels() { return [] },
+    async resolveModel(_provider, model) {
+      coreResolveCalls += 1
+      if (model !== 'zhipu/glm-4.6v-flash') return undefined
+      return {
+        provider: 'deepseek-vision',
+        id: model,
+        name: model,
+        inputModalities: ['text', 'image'],
+      }
+    },
+    async *stream(options) {
+      yield* wrapped.llm.stream(options)
+    },
+  })
+
+  const resolved = await registeredAdapter.resolveModel(
+    'deepseek-vision',
+    'zhipu/glm-4.6v-flash',
+  )
+  assert.equal(resolved.id, 'zhipu/glm-4.6v-flash')
+  assert.equal(coreResolveCalls, 1)
+  assert.equal(
+    officialListCalls,
+    0,
+    'configured composite routing must not depend on the official DeepSeek directory',
+  )
+
+  await assert.rejects(
+    registeredAdapter.resolveModel('deepseek-vision', 'arbitrary-id'),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  assert.equal(officialListCalls, 1)
+})
