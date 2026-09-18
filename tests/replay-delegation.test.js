@@ -375,25 +375,24 @@ test('main wrapper listModels restores only config-driven composite rows while p
   }
   const wrapped = contextWithDelegatedReplay(ctx)
 
-  // Core-like wrapper. Like the real core it mirrors only the two DeepSeek
-  // ids from the (stale) relay catalog, and appends config-driven composite
-  // rows only when whole-turn routing is on. It deliberately leaks both a
-  // non-composite Kimi row and a slash-shaped relay row to prove neither can
-  // masquerade as a config-derived composite route.
+  // Core-like wrapper. It deliberately leaks the config-derived composite row
+  // even while routing is off, then leaks additional relay noise when routing
+  // is on. The outer boundary must enforce both routing visibility and exact
+  // composite authority instead of trusting stale Core output.
   const coreWrapper = {
     async listModels() {
       const rows = [
         { provider: 'deepseek-vision', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', inputModalities: ['text', 'image'] },
         { provider: 'deepseek-vision', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', inputModalities: ['text', 'image'] },
       ]
+      rows.push({
+        provider: 'deepseek-vision',
+        id: 'zhipu/glm-4.6v-flash',
+        name: 'zhipu/glm-4.6v-flash（视觉）',
+        inputModalities: ['text', 'image'],
+      })
       if (routingEnabled) {
         rows.push(
-          {
-            provider: 'deepseek-vision',
-            id: 'zhipu/glm-4.6v-flash',
-            name: 'zhipu/glm-4.6v-flash（视觉）',
-            inputModalities: ['text', 'image'],
-          },
           { provider: 'deepseek-vision', id: 'k3', name: 'Kimi K3', inputModalities: ['text', 'image'] },
           {
             provider: 'deepseek-vision',
