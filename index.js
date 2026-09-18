@@ -114,6 +114,7 @@ import { createCoalescingRunner } from './lib/adapter-update-coalescer.js'
 import { captureWindowsDesktop } from './lib/windows-desktop-capture.js'
 import { blocksHaveRetainedImage, isOffloadedImageBlock, offloadedImagePlaceholder } from './lib/image-offload-compat.js'
 import { createSessionTurnResolver } from './lib/session-turn-resolver.js'
+import { shouldBlockDegradedHostTool } from './lib/degraded-local-evidence.js'
 
 import {
   sharpPromise,
@@ -727,6 +728,41 @@ export function apply(ctx, config = {}, runtime = {}) {
   }
   const sessionIdOf = (session) => sessionIdentityOf(session) ?? 'anon'
   const visionScopeOf = (session) => `${sessionIdOf(session)}:${turnNumberOf(session)}`
+  const DEGRADED_LOCAL_REFINEMENT_LIMIT = 2
+  const visionEvidenceSourceKey = (value) => String(value ?? '').trim()
+  const degradedLocalFailure = (code, reason) => JSON.stringify({
+    ok: false,
+    code,
+    retryable: false,
+    reason,
+  })
+  const degradedLocalState = (session, source) => {
+    if (!session) return { active: false, scope: undefined, sourceKey: visionEvidenceSourceKey(source), used: 0 }
+    const scope = visionScopeOf(session)
+    const sourceKey = visionEvidenceSourceKey(source)
+    const active = visionTurnMemory.allFailed(scope) && visionTurnMemory.hasLocalOcr(scope, sourceKey)
+    return {
+      active,
+      scope,
+      sourceKey,
+      used: active ? visionTurnMemory.degradedRefinementCount(scope, sourceKey) : 0,
+    }
+  }
+
+  // DSH rc.8+ exposes a monotonic tool guard. Keep ordinary Host tools fully
+  // available, but do not let the same Agent rebuild an OCR/pixel-analysis
+  // pipeline from the current image bytes or Vision Router artifacts after every
+  // visual backend already failed and local OCR evidence exists for this turn.
+  if (typeof ctx.tools?.guard === 'function') {
+    ctx.tools.guard((exec) => {
+      const session = exec?.agent?.session
+      if (!session) return undefined
+      const scope = visionScopeOf(session)
+      const evidenceTokens = visionTurnMemory.degradedEvidenceTokens(scope)
+      if (!shouldBlockDegradedHostTool(exec.name, exec.arguments, evidenceTokens)) return undefined
+      return 'vision degraded-local evidence guard: do not reconstruct or re-parse this degraded image with Host tools after the visual backends failed; answer from the existing OCR evidence and state any remaining uncertainty'
+    })
+  }
 
   /** Stable, never-logged fingerprint of the credential a backend will use. */
   const credentialFingerprintOf = (value) => {
@@ -3386,6 +3422,14 @@ ctx.logger?.info(
       output: stringOutput,
       async execute(args, exec) {
         const source = String(args.image ?? '')
+        const session = exec?.agent?.session
+        const degraded = degradedLocalState(session, source)
+        if (degraded.active) {
+          return degradedLocalFailure(
+            'VISION_LOCAL_EVIDENCE_AVAILABLE',
+            'local OCR evidence already exists for this image and every configured vision backend has failed this turn; do not materialize the image to rebuild another parser/OCR pipeline',
+          )
+        }
         const { bytes, mediaType } = await readImageBytes(exec, source)
         const extension = mediaType === 'image/jpeg'
           ? 'jpg'
@@ -3394,7 +3438,15 @@ ctx.logger?.info(
             : mediaType === 'image/gif'
               ? 'gif'
               : 'png'
-        const target = await saveArtifact(exec, `${artifactStem(source, 'materialized')}.${extension}`, bytes)
+        const artifactName = `${artifactStem(source, 'materialized')}.${extension}`
+        const target = await saveArtifact(exec, artifactName, bytes)
+        if (session) {
+          visionTurnMemory.recordDerivedArtifact(
+            visionScopeOf(session),
+            visionEvidenceSourceKey(source),
+            artifactName,
+          )
+        }
         return JSON.stringify({
           path: target,
           mediaType,
@@ -3787,6 +3839,14 @@ ctx.logger?.info(
       },
       output: stringOutput,
       async execute(args, exec) {
+        const session = exec?.agent?.session
+        const degraded = degradedLocalState(session, args.image)
+        if (degraded.active && degraded.used >= DEGRADED_LOCAL_REFINEMENT_LIMIT) {
+          return degradedLocalFailure(
+            'VISION_DEGRADED_LOCAL_LIMIT',
+            `the degraded local evidence budget for this image is exhausted after ${DEGRADED_LOCAL_REFINEMENT_LIMIT} refinement call(s); answer from existing evidence and state any remaining uncertainty`,
+          )
+        }
         const { bytes } = await readImageBytes(exec, args.image)
         const { width, height } = await imageDims(bytes)
         const box = parseBox(args.region)
@@ -3818,11 +3878,17 @@ ctx.logger?.info(
         } finally {
           releaseCrop()
         }
-        const target = await saveArtifact(
-          exec,
-          `${artifactStem(args.image, `crop-${box.x1}-${box.y1}-${box.x2}-${box.y2}`)}.png`,
-          cropped,
-        )
+        const artifactName = `${artifactStem(args.image, `crop-${box.x1}-${box.y1}-${box.x2}-${box.y2}`)}.png`
+        const target = await saveArtifact(exec, artifactName, cropped)
+        if (session) {
+          const scope = visionScopeOf(session)
+          visionTurnMemory.recordDerivedArtifact(
+            scope,
+            visionEvidenceSourceKey(args.image),
+            artifactName,
+          )
+          if (degraded.active) visionTurnMemory.recordDegradedRefinement(scope, degraded.sourceKey)
+        }
         const meta = await sharp(cropped).metadata()
         return JSON.stringify({
           path: target,
@@ -4105,17 +4171,38 @@ ctx.logger?.info(
       },
       output: stringOutput,
       async execute(args, exec) {
-        const { bytes, mediaType } = await readImageBytes(exec, args.image)
+        const session = exec?.agent?.session
         const engine = resolveVisionOcrEngine(args.engine)
+        const degraded = degradedLocalState(session, args.image)
+        if (
+          engine !== 'vision' &&
+          degraded.active &&
+          degraded.used >= DEGRADED_LOCAL_REFINEMENT_LIMIT
+        ) {
+          return degradedLocalFailure(
+            'VISION_DEGRADED_LOCAL_LIMIT',
+            `the degraded local evidence budget for this image is exhausted after ${DEGRADED_LOCAL_REFINEMENT_LIMIT} refinement call(s); answer from existing evidence and state any remaining uncertainty`,
+          )
+        }
+        const { bytes, mediaType } = await readImageBytes(exec, args.image)
         // ONE OCR budget shared by tesseract AND the vision fallback: tesseract
         // gets a capped slice (never more than 12s), the vision model only the
         // remainder. The two timeouts can never stack into a multi-minute wait.
         const deadline = createDeadline(ocrBudgetMs())
         const tesseractSlice = Math.min(12000, deadline.remaining())
         if (engine !== 'vision') {
+          let localAttempted = false
           try {
+            localAttempted = true
             const local = await ocrWithTesseractAdaptive(bytes, tesseractSlice)
             if (local.text.trim() !== '') {
+              if (session) {
+                visionTurnMemory.recordLocalOcr(
+                  visionScopeOf(session),
+                  visionEvidenceSourceKey(args.image),
+                  { uncertain: local.uncertain === true },
+                )
+              }
               return JSON.stringify({
                 engine: 'tesseract',
                 text: local.text.trim(),
@@ -4140,6 +4227,13 @@ ctx.logger?.info(
               )
             }
             ctx.logger?.warn('vision-router: tesseract OCR unavailable, falling back to vision model')
+          } finally {
+            if (degraded.active && localAttempted && session) {
+              visionTurnMemory.recordDegradedRefinement(
+                visionScopeOf(session),
+                degraded.sourceKey,
+              )
+            }
           }
         }
         if (deadline.expired()) {

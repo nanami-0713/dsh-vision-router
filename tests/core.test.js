@@ -1304,7 +1304,7 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
   const adapters = new Map() // provider -> adapter
   const registrations = new Map() // provider -> { adapter, retryPolicy }
   const directories = [] // configurable-provider registrations (directory seam)
-  const captured = { skills: [], tools: [], streamCalls: [], settingsReads: [], on: new Map() }
+  const captured = { skills: [], tools: [], guards: [], streamCalls: [], settingsReads: [], on: new Map() }
   // The mutable user document and the watch seam: tests flip config0 fields
   // and fire the watchers to simulate a settings-card save.
   const userDoc = config0
@@ -1433,7 +1433,10 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
       }
       callback(sctx)
     },
-    tools: { register: (tool) => { captured.tools.push(tool); return () => {} } },
+    tools: {
+      register: (tool) => { captured.tools.push(tool); return () => {} },
+      guard: (guard) => { captured.guards.push(guard); return () => {} },
+    },
     llm: {
       registerAdapter(providers, adapter) {
         const owned = new Set()
@@ -1530,6 +1533,13 @@ function mockHarnessCtx({ stockRoute = false, config0 = {}, skills = false, atta
   }
   return { ctx, adapters, captured, directories, userDoc, settingsWatchers }
 }
+
+test('apply wires the degraded local-evidence Host tool guard when supported', () => {
+  const { ctx, captured } = mockHarnessCtx()
+  apply(ctx, Config({}))
+  assert.equal(captured.guards.length, 1)
+  assert.equal(captured.guards[0]({ name: 'bash', arguments: { command: 'npm test' } }), undefined)
+})
 
 test('apply registers the stealth deepseek-official route with the stock catalog', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
