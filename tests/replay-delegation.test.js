@@ -809,7 +809,7 @@ test('issue #504: wrapper list/resolve share one fresh official catalog read', a
 })
 
 
-test('issue #504 follow-up: official catalog outage does not block a configured composite wrapper model', async () => {
+test('issue #504 follow-up: official catalog outage does not block Core-owned composite wrapper models', async () => {
   let registeredAdapter
   let officialListCalls = 0
   let coreResolveCalls = 0
@@ -858,7 +858,12 @@ test('issue #504 follow-up: official catalog outage does not block a configured 
     async listModels() { return [] },
     async resolveModel(_provider, model) {
       coreResolveCalls += 1
-      if (model !== 'zhipu/glm-4.6v-flash') return undefined
+      if (
+        model !== 'zhipu/glm-4.6v-flash'
+        && model !== 'vision-http/local-ollama/qwen2.5-vl'
+      ) {
+        return undefined
+      }
       return {
         provider: 'deepseek-vision',
         id: model,
@@ -877,10 +882,17 @@ test('issue #504 follow-up: official catalog outage does not block a configured 
   )
   assert.equal(resolved.id, 'zhipu/glm-4.6v-flash')
   assert.equal(coreResolveCalls, 1)
+
+  const localResolved = await registeredAdapter.resolveModel(
+    'deepseek-vision',
+    'vision-http/local-ollama/qwen2.5-vl',
+  )
+  assert.equal(localResolved.id, 'vision-http/local-ollama/qwen2.5-vl')
+  assert.equal(coreResolveCalls, 2)
   assert.equal(
     officialListCalls,
     0,
-    'configured composite routing must not depend on the official DeepSeek directory',
+    'Core-owned composite routing must not depend on the official DeepSeek directory',
   )
 
   await assert.rejects(
