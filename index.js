@@ -60,6 +60,7 @@ import {
   anthropicMediaType,
 } from './lib/catalog-corrections.js'
 import { createCachedUpdateChecker } from './lib/update-check.js'
+import { getOfficialDeepSeekCatalog } from './lib/official-deepseek-catalog.js'
 import { probeLocalBackends } from './lib/local-connection-probe.js'
 import { detectDshSelfUpdatePlan, runDshPluginUpdate } from './lib/self-update.js'
 import {
@@ -1203,7 +1204,7 @@ export function apply(ctx, config = {}, runtime = {}) {
         const real = delegateAdapter()
         if (real !== undefined && typeof real.listModels === 'function') {
           try {
-            const listed = await real.listModels('deepseek-official')
+            const listed = await getOfficialDeepSeekCatalog(real)
             entries.push(
               ...(Array.isArray(listed) ? listed : [])
                 .filter((model) => model && typeof model.id === 'string' && model.id !== '')
@@ -1269,7 +1270,7 @@ export function apply(ctx, config = {}, runtime = {}) {
           if (typeof real.listModels !== 'function') {
             throw new Error('vision-router: the official DeepSeek catalog is not available')
           }
-          const listed = await real.listModels('deepseek-official')
+          const listed = await getOfficialDeepSeekCatalog(real)
           const admitted = Array.isArray(listed) && listed.some(
             (entry) => entry && entry.id === model,
           )
