@@ -705,3 +705,105 @@ test('only the configured main wrapper route gets fixed DeepSeek delegate rewrit
   }
   assert.equal(seen.provider, 'original-provider')
 })
+
+
+test('issue #504: official catalog outage stays fail-closed before any trusted snapshot exists', async () => {
+  let registeredAdapter
+  let coreResolveCalls = 0
+  const official = {
+    async listModels() {
+      throw new Error('503 catalog unavailable')
+    },
+    async resolveModel(_provider, model) {
+      coreResolveCalls += 1
+      return { provider: 'deepseek-official', id: model, name: model, inputModalities: ['text'] }
+    },
+  }
+  const ctx = {
+    llm: {
+      registration(provider) {
+        return provider === 'deepseek-official'
+          ? { retryPolicy: 'deepseek-retry', adapter: official }
+          : undefined
+      },
+      registerAdapter(_providers, adapter) {
+        registeredAdapter = adapter
+        return () => {}
+      },
+      async *stream() {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+    get() {
+      return undefined
+    },
+  }
+  const wrapped = contextWithDelegatedReplay(ctx)
+  wrapped.llm.registerAdapter(['deepseek-vision'], {
+    async listModels() { return [] },
+    async resolveModel(_provider, model) {
+      coreResolveCalls += 1
+      return { provider: 'deepseek-vision', id: model, name: model, inputModalities: ['text', 'image'] }
+    },
+    async *stream(options) {
+      yield* wrapped.llm.stream(options)
+    },
+  })
+
+  await assert.rejects(
+    registeredAdapter.resolveModel('deepseek-vision', 'arbitrary-id'),
+    (error) => error?.code === 'OFFICIAL_CATALOG_UNAVAILABLE',
+  )
+  assert.equal(coreResolveCalls, 0)
+})
+
+test('issue #504: wrapper list/resolve share one fresh official catalog read', async () => {
+  let registeredAdapter
+  let listCalls = 0
+  const official = {
+    async listModels(provider) {
+      listCalls += 1
+      return [{ provider, id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', inputModalities: ['text'] }]
+    },
+    async resolveModel(provider, model) {
+      return { provider, id: model, name: model, inputModalities: ['text'] }
+    },
+  }
+  const ctx = {
+    llm: {
+      registration(provider) {
+        return provider === 'deepseek-official'
+          ? { retryPolicy: 'deepseek-retry', adapter: official }
+          : undefined
+      },
+      registerAdapter(_providers, adapter) {
+        registeredAdapter = adapter
+        return () => {}
+      },
+      async *stream() {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+    get() {
+      return undefined
+    },
+  }
+  const wrapped = contextWithDelegatedReplay(ctx)
+  wrapped.llm.registerAdapter(['deepseek-vision'], {
+    async listModels() {
+      return [{ provider: 'deepseek-vision', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', inputModalities: ['text', 'image'] }]
+    },
+    async resolveModel(_provider, model) {
+      return { provider: 'deepseek-vision', id: model, name: model, inputModalities: ['text', 'image'] }
+    },
+    async *stream(options) {
+      yield* wrapped.llm.stream(options)
+    },
+  })
+
+  const listed = await registeredAdapter.listModels('deepseek-vision')
+  assert.deepEqual(listed.map((entry) => entry.id), ['deepseek-v4-pro'])
+  const resolved = await registeredAdapter.resolveModel('deepseek-vision', 'deepseek-v4-pro')
+  assert.equal(resolved.id, 'deepseek-v4-pro')
+  assert.equal(listCalls, 1)
+})
