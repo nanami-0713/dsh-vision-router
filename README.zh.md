@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ysr666/dsh-vision-router/releases/tag/v2.2.0"><img src="https://img.shields.io/badge/release-v2.2.0-5B4CF0?style=flat-square" alt="Release v2.2.0" /></a>
+  <a href="https://github.com/ysr666/dsh-vision-router/releases/tag/v2.2.1"><img src="https://img.shields.io/badge/release-v2.2.1-5B4CF0?style=flat-square" alt="Release v2.2.1" /></a>
   <a href="tests"><img src="https://img.shields.io/badge/verified-Node%2022%20%2B%2024-2EA44F?style=flat-square" alt="已验证 Node 22 + 24" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat-square" alt="MIT 许可证" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D22-339933?style=flat-square&amp;logo=nodedotjs&amp;logoColor=white" alt="Node.js >=22" /></a>
@@ -39,9 +39,9 @@
 <p align="center">💬 <strong>QQ 用户交流群：1105463028</strong></p>
 
 > [!WARNING]
-> 📌 **公告（v2.2.0）**
+> 📌 **公告（v2.2.1）**
 >
-> **v2.2.0：Vision Quality Round 2 正式落地——自适应本地OCR、失败证据有界收敛、稳定artifact handoff、成功证据停止重复调用，并进一步收敛DSH/Session兼容；公开最低Host仍保持 `0.1.0-rc.8`。** [查看完整更新 →](docs/releases/v2.2.0.md)
+> **v2.2.1：稳定性热修——修复大型 Session repair 卡死、accessor fetch 组合、非整除 pixel diff 边界与本地 Ollama 推理占满答案预算；公开最低 Host 仍保持 `0.1.0-rc.8`。** [查看完整更新 →](docs/releases/v2.2.1.md)
 
 <p align="center">
   <img src="assets/vision-demo.gif" width="640" alt="演示：粘贴图片，Agent 用 vision_ground / vision_crop / vision_pixel_diff 定位发送按钮并给出坐标" />
