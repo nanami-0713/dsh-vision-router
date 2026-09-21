@@ -1,0 +1,50 @@
+name: Fetch wrapper composition
+
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/fetch-wrapper-composition.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/fetch-wrapper-composition.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  composition:
+    name: fetch composition / ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ matrix.node }}
+      - run: pnpm install --frozen-lockfile
+      - name: Verify accessor composition and existing wire/proxy contracts
+        run: node --test tests/fetch-wrapper-lifecycle.test.js tests/fetch-wrapper-composition.test.js tests/pi-ai-bridge-wire-compat.test.js tests/legacy-global-proxy-boundary.test.js
