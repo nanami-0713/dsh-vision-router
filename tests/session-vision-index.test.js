@@ -234,6 +234,58 @@ test('explicitly unsupported async attachment recovery preserves the released Se
   assert.equal(capabilityChecks, 1)
 })
 
+test('live Session eventAt bypasses SessionQuery for tool-result surface repair', async () => {
+  const event = { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } }
+  const session = sessionWith([event], [0], 3)
+  let liveReads = 0
+  let queryReads = 0
+  session.eventAt = (seq) => {
+    liveReads += 1
+    return seq === 0 ? event : undefined
+  }
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionEvent: async () => {
+      queryReads += 1
+      throw new Error('live surface repair must not snapshot the SessionQuery corpus')
+    },
+  })
+
+  assert.equal(await index.repairToolResultSurface(session), 1)
+  assert.equal(liveReads, 1)
+  assert.equal(queryReads, 0)
+  assert.equal(session.appended[0].data.message.sanitized, true)
+})
+
+test('live Session eventAt bypasses SessionQuery for guard-stop surface repair', async () => {
+  const event = {
+    seq: 0,
+    type: 'user/message',
+    data: { id: 'vision-router-structured-guard-stop-1', guardStop: true },
+  }
+  const session = sessionWith([event], [0], 3)
+  let liveReads = 0
+  let queryReads = 0
+  session.eventAt = (seq) => {
+    liveReads += 1
+    return seq === 0 ? event : undefined
+  }
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionEvent: async () => {
+      queryReads += 1
+      throw new Error('live surface repair must not snapshot the SessionQuery corpus')
+    },
+  })
+
+  assert.equal(await index.repairGuardStopSurface(session), 1)
+  assert.equal(liveReads, 1)
+  assert.equal(queryReads, 0)
+  assert.equal(session.appended[0].data.expired, true)
+})
+
 test('supported async surface reader repairs tool results without touching synchronous Session history', async () => {
   const event = { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } }
   let syncReads = 0
