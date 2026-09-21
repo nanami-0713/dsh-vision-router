@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ysr666/dsh-vision-router/releases/tag/v2.2.0"><img src="https://img.shields.io/badge/release-v2.2.0-5B4CF0?style=flat-square" alt="Release v2.2.0" /></a>
+  <a href="https://github.com/ysr666/dsh-vision-router/releases/tag/v2.2.1"><img src="https://img.shields.io/badge/release-v2.2.1-5B4CF0?style=flat-square" alt="Release v2.2.1" /></a>
   <a href="tests"><img src="https://img.shields.io/badge/verified-Node%2022%20%2B%2024-2EA44F?style=flat-square" alt="Verified: Node 22 + 24" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat-square" alt="License: MIT" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D22-339933?style=flat-square&amp;logo=nodedotjs&amp;logoColor=white" alt="Node.js >=22" /></a>
@@ -39,9 +39,9 @@
 <p align="center">💬 <strong>QQ community group: 1105463028</strong></p>
 
 > [!WARNING]
-> 📌 **Announcement (v2.2.0)**
+> 📌 **Announcement (v2.2.1)**
 >
-> **v2.2.0:** Lands Vision Quality Round 2 with adaptive local OCR, bounded degraded-evidence work, stable artifact handoff, successful-evidence convergence, and stronger DSH/session compatibility — without raising the rc.8 Host floor. [What’s new →](docs/releases/v2.2.0.md)
+> **v2.2.1:** Stability hotfix for large-session repair, accessor-based fetch composition, non-divisible pixel-diff bounds, and local Ollama answer-budget preservation — without raising the rc.8 Host floor. [What’s new →](docs/releases/v2.2.1.md)
 
 <p align="center">
   <img src="assets/vision-demo.gif" width="640" alt="Demo: paste an image, the agent locates the send button with vision_ground / vision_crop / vision_pixel_diff and answers with coordinates" />

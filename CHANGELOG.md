@@ -5,6 +5,29 @@ Bilingual (Chinese + English) release notes for every version — the GitHub Rel
 
 ## Unreleased
 
+## v2.2.1
+
+### Stability & compatibility hotfixes / 稳定性与兼容性热修
+
+- **大型 Session surface repair 不再出现二次方深拷贝放大（#524）**：tool-result 与 guard-stop 两条 repair 路径现在每个 pass 最多取得一次 Host-owned 异步 Session observation，再按 seq 批量处理；避免对每个 surface node 都调用 `sessionQuery.readEvent()` 并重复克隆整个 live corpus。保留冷会话与旧 Host 的兼容 fallback，不新增已弃用的同步 Session-history 读取。
+- **Large-session surface repair no longer amplifies full-session cloning quadratically (#524)**: both tool-result and guard-stop repair now use at most one Host-owned asynchronous Session observation per pass and index pending seqs from that stable cut, avoiding one `sessionQuery.readEvent()` / full live-corpus clone per surface node. Cold-session and older-Host fallbacks remain intact, with no new deprecated synchronous Session-history reads.
+- **全局 fetch 包装与 Host accessor pipeline 可组合（#519）**：兼容 wrapper 不再触发外部 fetch setter 自引用；安装/卸载按 descriptor ownership 恢复，实时 getter delegate 保留 Host 后续中间件替换与卸载语义。
+- **Global fetch wrappers now compose with Host accessor pipelines (#519)**: compatibility wrappers no longer self-adopt through foreign fetch setters; descriptor-owned install/restore and live getter delegation preserve later Host middleware replacement and teardown.
+- **pixel diff 非整除网格边界修正（#520）**：worst-region cell bounds 与 uniform counting map 使用同一精确 preimage，修复 9×1、4096×2731 等非整除尺寸边缘遗漏。
+- **Pixel-diff non-divisible grid bounds are aligned (#520)**: worst-region cells now use the exact preimage of the uniform counting map, fixing edge misses on dimensions such as 9×1 and 4096×2731.
+- **Ollama 本地视觉默认关闭隐藏推理（#526，Ollama 部分）**：生成的 `local-ollama` provider 在 OpenAI-compatible Chat Completions 上显式使用 `reasoning_effort: "none"`，让有限 completion budget 用于可见答案；LM Studio 路径未猜测未文档化字段，仍单独跟踪。
+- **Local Ollama vision disables hidden reasoning by default (Ollama portion of #526)**: generated `local-ollama` providers explicitly use `reasoning_effort: "none"` on the OpenAI-compatible Chat Completions path so the bounded completion budget is spent on observable answer text. LM Studio remains separately tracked rather than receiving an undocumented field.
+
+### Release validation / 发布验证
+
+- 补齐 release-channel canary 的 Session fixture，stable/latest 与 preview/alpha 都会安装完整 publication family 后执行 Host contract smoke。
+- Release-channel canary now includes the Session package in its isolated fixture, so stable/latest and preview/alpha both validate the complete publication family before Host contract smoke.
+- Node 22/24、Windows/macOS/Linux、DSH minimum/current/preview、exact-source、fetch composition 与 adversarial gates 均在相关修复 PR 上通过。
+- Node 22/24, Windows/macOS/Linux, DSH minimum/current/preview, exact-source, fetch-composition, and adversarial gates passed on the corresponding hotfix PRs.
+- 公开最低 DSH Host 仍为 `0.1.0-rc.8`；2.2.0 配置无需迁移。
+- The public minimum DSH Host remains `0.1.0-rc.8`; existing 2.2.0 configuration requires no migration.
+
+
 ## v2.2.0
 
 ### Vision Quality Round 2
