@@ -234,6 +234,60 @@ test('explicitly unsupported async attachment recovery preserves the released Se
   assert.equal(capabilityChecks, 1)
 })
 
+test('surface repair reads one async Session snapshot for every pending tool-result node', async () => {
+  const events = [
+    { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'first' } } },
+    { seq: 1, type: 'tool/result', data: { message: { hasImage: true, text: 'second' } } },
+  ]
+  const session = sessionWith(events, [0, 1], 3)
+  let logReads = 0
+  let eventReads = 0
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionLog: async () => {
+      logReads += 1
+      return { supported: true, events }
+    },
+    readSessionEvent: async () => {
+      eventReads += 1
+      throw new Error('per-event SessionQuery reads must not run when a snapshot is available')
+    },
+  })
+
+  assert.equal(await index.repairToolResultSurface(session), 2)
+  assert.equal(logReads, 1)
+  assert.equal(eventReads, 0)
+  assert.deepEqual(session.appended.map((entry) => entry.data.message.sanitized), [true, true])
+})
+
+test('guard-stop repair reads one async Session snapshot for every pending surface node', async () => {
+  const events = [
+    { seq: 0, type: 'user/message', data: { id: 'vision-router-structured-guard-stop-1', guardStop: true } },
+    { seq: 1, type: 'user/message', data: { id: 'vision-router-structured-guard-stop-2', guardStop: true } },
+  ]
+  const session = sessionWith(events, [0, 1], 3)
+  let logReads = 0
+  let eventReads = 0
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionLog: async () => {
+      logReads += 1
+      return { supported: true, events }
+    },
+    readSessionEvent: async () => {
+      eventReads += 1
+      throw new Error('per-event SessionQuery reads must not run when a snapshot is available')
+    },
+  })
+
+  assert.equal(await index.repairGuardStopSurface(session), 2)
+  assert.equal(logReads, 1)
+  assert.equal(eventReads, 0)
+  assert.deepEqual(session.appended.map((entry) => entry.data.expired), [true, true])
+})
+
 test('supported async surface reader repairs tool results without touching synchronous Session history', async () => {
   const event = { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } }
   let syncReads = 0
