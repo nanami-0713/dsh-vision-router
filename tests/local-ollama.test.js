@@ -32,6 +32,7 @@ test('localOllamaProvidersOf returns a keyless local-ollama provider when enable
   assert.equal(list[0].baseURL, 'http://127.0.0.1:11434/v1')
   assert.equal(list[0].model, 'qwen2.5vl')
   assert.equal(list[0].apiKeyEnv, '')
+  assert.equal(list[0].reasoningEffort, 'none')
   const custom = localOllamaProvidersOf({
     localOllama: { enabled: true, baseURL: 'http://localhost:8080/v1', model: 'my-vl' },
   })[0]
@@ -65,6 +66,7 @@ test('localLmStudioProvidersOf mirrors localOllamaProvidersOf semantics', () => 
   assert.equal(list[0].baseURL, 'http://localhost:1234/v1')
   assert.equal(list[0].model, 'lm-model')
   assert.equal(list[0].apiKeyEnv, '')
+  assert.equal('reasoningEffort' in list[0], false)
   const custom = localLmStudioProvidersOf({
     localLmStudio: { enabled: true, baseURL: 'http://localhost:9999/v1', model: 'qwen2.5-vl' },
   })[0]
@@ -464,6 +466,32 @@ test('callLocalBackend openai format stays on the pure OpenAI transport', async 
     assert.equal(text, 'ok')
     assert.equal(captured.url, 'http://127.0.0.1:11434/v1/chat/completions')
     assert.equal(captured.headers.authorization, undefined)
+    assert.equal(captured.body.reasoning_effort, 'none')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('callLocalBackend does not invent Ollama reasoning fields for LM Studio Chat Completions', async () => {
+  const original = globalThis.fetch
+  let captured
+  globalThis.fetch = async (_url, init) => {
+    captured = JSON.parse(init.body)
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )
+  }
+  try {
+    const provider = localLmStudioProvidersOf({
+      localLmStudio: { enabled: true, model: 'lm-model' },
+    })[0]
+    assert.equal(await callLocalBackend(
+      provider,
+      [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      {},
+    ), 'ok')
+    assert.equal(Object.hasOwn(captured, 'reasoning_effort'), false)
   } finally {
     globalThis.fetch = original
   }
