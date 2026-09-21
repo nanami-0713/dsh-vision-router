@@ -209,33 +209,63 @@ test('bounded Session tail reader keeps missing capability explicit and propagat
 })
 
 
-test('async Session log reader follows live readSession capability and validates the observed owner', async () => {
+test('async Session log reader prefers one observation lease and disposes it after materialization', async () => {
   let query
   const ctx = { get(name) { return name === 'sessionQuery' ? query : undefined } }
   const read = createSessionLogReader(ctx)
   const session = { id: 'session-log-reader' }
 
   assert.deepEqual(await read(session), { supported: false })
+  let readSessionCalls = 0
+  let disposed = 0
+  const events = [{ seq: 0, type: 'user/message', data: {} }]
   query = {
-    async readSession(sessionId) {
-      return { session: { id: sessionId }, events: [{ seq: 0, type: 'user/message', data: {} }] }
+    async observeSession(sessionId, options) {
+      assert.equal(sessionId, session.id)
+      assert.deepEqual(options, { projectionMode: 'none' })
+      return {
+        header: { id: sessionId },
+        events,
+        [Symbol.dispose]() { disposed += 1 },
+      }
+    },
+    async readSession() {
+      readSessionCalls += 1
+      throw new Error('observeSession must be preferred')
     },
   }
-  assert.deepEqual(await read(session), {
-    supported: true,
-    events: [{ seq: 0, type: 'user/message', data: {} }],
-  })
+  assert.deepEqual(await read(session), { supported: true, events })
+  assert.equal(readSessionCalls, 0)
+  assert.equal(disposed, 1)
 
   query = {
-    async readSession() { return { session: { id: 'other' }, events: [] } },
+    async observeSession() {
+      return { header: { id: 'other' }, events: [], [Symbol.dispose]() { disposed += 1 } }
+    },
   }
   await assert.rejects(() => read(session), /returned session other/)
+  assert.equal(disposed, 2)
+})
+
+test('async Session log reader falls back to readSession when observation capability is absent', async () => {
+  const events = [{ seq: 0, type: 'user/message', data: {} }]
+  const read = createSessionLogReader({
+    sessionQuery: {
+      async readSession(sessionId) {
+        return { session: { id: sessionId }, events }
+      },
+    },
+  })
+  assert.deepEqual(await read({ id: 'session-log-reader' }), { supported: true, events })
 })
 
 test('async Session log reader propagates advertised Host failures instead of masking them', async () => {
   const failure = new Error('session log unavailable')
   const read = createSessionLogReader({
-    sessionQuery: { async readSession() { throw failure } },
+    sessionQuery: {
+      async observeSession() { throw failure },
+      async readSession() { throw new Error('must not mask an advertised observation failure') },
+    },
   })
   await assert.rejects(() => read({ id: 'session-log-reader' }), (error) => error === failure)
 })

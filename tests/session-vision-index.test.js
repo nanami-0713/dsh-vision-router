@@ -234,56 +234,58 @@ test('explicitly unsupported async attachment recovery preserves the released Se
   assert.equal(capabilityChecks, 1)
 })
 
-test('live Session eventAt bypasses SessionQuery for tool-result surface repair', async () => {
-  const event = { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'tool result' } } }
-  const session = sessionWith([event], [0], 3)
-  let liveReads = 0
-  let queryReads = 0
-  session.eventAt = (seq) => {
-    liveReads += 1
-    return seq === 0 ? event : undefined
-  }
+test('surface repair reads one async Session snapshot for every pending tool-result node', async () => {
+  const events = [
+    { seq: 0, type: 'tool/result', data: { message: { hasImage: true, text: 'first' } } },
+    { seq: 1, type: 'tool/result', data: { message: { hasImage: true, text: 'second' } } },
+  ]
+  const session = sessionWith(events, [0, 1], 3)
+  let logReads = 0
+  let eventReads = 0
   const index = createSessionVisionIndex({
     stateStore: createSessionVisionStateStore(),
     core: coreStub(),
+    readSessionLog: async () => {
+      logReads += 1
+      return { supported: true, events }
+    },
     readSessionEvent: async () => {
-      queryReads += 1
-      throw new Error('live surface repair must not snapshot the SessionQuery corpus')
+      eventReads += 1
+      throw new Error('per-event SessionQuery reads must not run when a snapshot is available')
     },
   })
 
-  assert.equal(await index.repairToolResultSurface(session), 1)
-  assert.equal(liveReads, 1)
-  assert.equal(queryReads, 0)
-  assert.equal(session.appended[0].data.message.sanitized, true)
+  assert.equal(await index.repairToolResultSurface(session), 2)
+  assert.equal(logReads, 1)
+  assert.equal(eventReads, 0)
+  assert.deepEqual(session.appended.map((entry) => entry.data.message.sanitized), [true, true])
 })
 
-test('live Session eventAt bypasses SessionQuery for guard-stop surface repair', async () => {
-  const event = {
-    seq: 0,
-    type: 'user/message',
-    data: { id: 'vision-router-structured-guard-stop-1', guardStop: true },
-  }
-  const session = sessionWith([event], [0], 3)
-  let liveReads = 0
-  let queryReads = 0
-  session.eventAt = (seq) => {
-    liveReads += 1
-    return seq === 0 ? event : undefined
-  }
+test('guard-stop repair reads one async Session snapshot for every pending surface node', async () => {
+  const events = [
+    { seq: 0, type: 'user/message', data: { id: 'vision-router-structured-guard-stop-1', guardStop: true } },
+    { seq: 1, type: 'user/message', data: { id: 'vision-router-structured-guard-stop-2', guardStop: true } },
+  ]
+  const session = sessionWith(events, [0, 1], 3)
+  let logReads = 0
+  let eventReads = 0
   const index = createSessionVisionIndex({
     stateStore: createSessionVisionStateStore(),
     core: coreStub(),
+    readSessionLog: async () => {
+      logReads += 1
+      return { supported: true, events }
+    },
     readSessionEvent: async () => {
-      queryReads += 1
-      throw new Error('live surface repair must not snapshot the SessionQuery corpus')
+      eventReads += 1
+      throw new Error('per-event SessionQuery reads must not run when a snapshot is available')
     },
   })
 
-  assert.equal(await index.repairGuardStopSurface(session), 1)
-  assert.equal(liveReads, 1)
-  assert.equal(queryReads, 0)
-  assert.equal(session.appended[0].data.expired, true)
+  assert.equal(await index.repairGuardStopSurface(session), 2)
+  assert.equal(logReads, 1)
+  assert.equal(eventReads, 0)
+  assert.deepEqual(session.appended.map((entry) => entry.data.expired), [true, true])
 })
 
 test('supported async surface reader repairs tool results without touching synchronous Session history', async () => {
