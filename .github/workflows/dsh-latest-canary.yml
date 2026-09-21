@@ -1,9 +1,17 @@
 name: DSH Release Channel Canary
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/dsh-latest-canary.yml'
+      - 'scripts/dsh-host-contract-smoke.mjs'
   schedule:
     - cron: '17 4 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -12,6 +20,7 @@ jobs:
   release-channel:
     name: ${{ matrix.channel }}-${{ matrix.dist_tag }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +62,7 @@ jobs:
             '@deepseek-ai/dsh-llm'
             '@deepseek-ai/dsh-llm-deepseek'
             '@deepseek-ai/dsh-anonymous-user-id'
+            '@deepseek-ai/dsh-session'
             '@deepseek-ai/dsh-settings'
             '@deepseek-ai/dsh-tools'
             '@deepseek-ai/dsh-system-prompt'
@@ -100,6 +110,7 @@ jobs:
               '@deepseek-ai/dsh-llm': v,
               '@deepseek-ai/dsh-llm-deepseek': v,
               '@deepseek-ai/dsh-anonymous-user-id': v,
+              '@deepseek-ai/dsh-session': v,
               '@deepseek-ai/dsh-settings': v,
               '@deepseek-ai/dsh-tools': v,
               '@deepseek-ai/dsh-system-prompt': v,
@@ -122,6 +133,6 @@ jobs:
           {
             echo "## DSH ${DSH_CHANNEL} compatibility investigation required"
             echo
-            echo "The scheduled canary failed against the @deepseek-ai/dsh ${DSH_VERSION} release family from the ${DSH_DIST_TAG} dist-tag."
+            echo "The canary failed against the @deepseek-ai/dsh ${DSH_VERSION} release family from the ${DSH_DIST_TAG} dist-tag."
             echo 'This job is intentionally non-gating for normal pull requests. Confirm whether the release family is fully published and then confirm the changed Host capability before changing the supported contract or adding compatibility code.'
           } >> "$GITHUB_STEP_SUMMARY"
