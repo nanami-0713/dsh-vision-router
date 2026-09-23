@@ -20,10 +20,18 @@ import {
   webRouteRemoteCapability,
 } from '../lib/web-capability-boundary.js'
 
+let profileFixtureId = 0
+
 function make017SettingsHarness() {
   const inherited = {
     routing: false,
     allowRemoteSettings: false,
+    nested: { stable: true },
+  }
+  const baseConfig = {
+    routing: false,
+    allowRemoteSettings: false,
+    tool: true,
     nested: { stable: true },
   }
   const entry = {
@@ -52,15 +60,11 @@ function make017SettingsHarness() {
       return () => {}
     },
   }
-  const wrapped = installDsh017SettingsCompatibility(ctx, {
-    routing: false,
-    allowRemoteSettings: false,
-    tool: true,
-    nested: { stable: true },
-  })
+  const wrapped = installDsh017SettingsCompatibility(ctx, baseConfig)
 
   function mountEditor() {
     editor = {
+      documentPath: `/tmp/dvr-settings-017-${++profileFixtureId}.yml`,
       configuration() {
         return [{ entry, inherited: structuredClone(inherited), override: {} }]
       },
@@ -79,7 +83,19 @@ function make017SettingsHarness() {
     return { settings, scope }
   }
 
-  return { wrapped, nativeSettings, entry, mountEditor, watchCalls: () => watchCalls }
+  function reloadCompatibility() {
+    return installDsh017SettingsCompatibility(ctx, baseConfig).get('settings')
+  }
+
+  return {
+    ctx,
+    wrapped,
+    nativeSettings,
+    entry,
+    mountEditor,
+    reloadCompatibility,
+    watchCalls: () => watchCalls,
+  }
 }
 
 test('DSH 0.1.7 settings compatibility activates only after ConfigEditor mounts and persists through edit()', async () => {
@@ -93,7 +109,8 @@ test('DSH 0.1.7 settings compatibility activates only after ConfigEditor mounts 
   assert.equal(scope.get().tool, true)
 
   const initial = settings.describe()[0]
-  assert.equal(initial.revision, 0)
+  assert.equal(Number.isSafeInteger(initial.revision), true)
+  assert.ok(initial.revision >= 0)
   assert.deepEqual(initial.user, { allowRemoteSettings: true })
 
   await settings.mutate(
@@ -102,15 +119,27 @@ test('DSH 0.1.7 settings compatibility activates only after ConfigEditor mounts 
     initial.revision,
   )
   const changed = settings.describe()[0]
-  assert.equal(changed.revision, 1)
+  assert.notEqual(changed.revision, initial.revision)
   assert.equal(changed.value.routing, true)
   assert.equal(changed.user.routing, true)
   assert.equal(harness.entry.options.config.routing, true)
   assert.equal(harness.watchCalls(), 1)
 
+  // Ordinary Config edits HMR DVR. A newly-created compatibility facade must
+  // inherit the same process-level revision rather than resetting to zero.
+  const afterHmr = harness.reloadCompatibility().describe()[0]
+  assert.equal(afterHmr.revision, changed.revision)
+  assert.equal(afterHmr.value.routing, true)
+
   await assert.rejects(
-    () => settings.mutate('vision-router', [{ op: 'set', path: ['routing'], value: false }], 0),
-    (error) => error?.code === 'SETTINGS_CONFLICT' && error.expected === 0 && error.actual === 1,
+    () => settings.mutate(
+      'vision-router',
+      [{ op: 'set', path: ['routing'], value: false }],
+      initial.revision,
+    ),
+    (error) => error?.code === 'SETTINGS_CONFLICT'
+      && error.expected === initial.revision
+      && error.actual === changed.revision,
   )
 
   await settings.mutate(
@@ -119,10 +148,13 @@ test('DSH 0.1.7 settings compatibility activates only after ConfigEditor mounts 
     changed.revision,
   )
   const reset = settings.describe()[0]
-  assert.equal(reset.revision, 2)
+  assert.ok(reset.revision > changed.revision, 'ABA back to the original config must still advance revision')
   assert.equal(reset.value.routing, false)
   assert.equal(Object.hasOwn(reset.user, 'routing'), false)
   assert.equal(harness.watchCalls(), 2)
+
+  const resetAfterHmr = harness.reloadCompatibility().describe()[0]
+  assert.equal(resetAfterHmr.revision, reset.revision)
 })
 
 test('legacy SettingsProvider remains owned by the old Host generation', () => {
