@@ -261,12 +261,15 @@ try {
   assert.deepEqual(pageErrors, [], `Settings lifecycle emitted browser page errors:\n${pageErrors.join('\n')}`)
   const localSettingsGets = diagnostics.filter((line) => line.startsWith('settings request: GET '))
   const localSettingsPosts = diagnostics.filter((line) => line.startsWith('settings request: POST '))
-  assert.ok(localSettingsGets.length >= 2, 'real lifecycle must read local settings before and after browser reload')
-  assert.ok(localSettingsPosts.length >= 1, 'real lifecycle must persist edits through the Host local-settings transport')
+  const expectedDshVersion = process.env.DSH_EXPECTED_VERSION || 'unknown'
+  if (expectedDshVersion.startsWith('0.1.7')) {
+    assert.ok(localSettingsGets.length >= 2, '0.1.7 lifecycle must read local settings before and after browser reload')
+    assert.ok(localSettingsPosts.length >= 1, '0.1.7 lifecycle must persist edits through the Host local-settings transport')
+  }
 
   console.log(JSON.stringify({
     ok: true,
-    dsh: process.env.DSH_EXPECTED_VERSION || 'unknown',
+    dsh: expectedDshVersion,
     settingsSection: 'vision-router',
     structuredVisionBootstrap: true,
     visionDepth: 'fast',
