@@ -6,6 +6,8 @@ import {
   SETTINGS_017_CLIENT_PRELUDE,
   installSettings017ClientCompatibility,
 } from '../lib/settings-client-017-compat.js'
+import { SETTINGS_CONFIG_FORMS_CLIENT_PRELUDE } from '../lib/web/remote-settings-client.js'
+import { SETTINGS_RC8_CLIENT_PRELUDE } from '../lib/settings-client-rc8-lifecycle.js'
 
 test('0.1.7 server-side client shim is fenced by ConfigEditor availability', () => {
   let dependencies
@@ -153,6 +155,76 @@ test('0.1.7 prelude normalizes loopback page authority for lazy Connection reads
   assert.equal(connection.isLoopback, false, 'the underlying Host service must remain untouched')
   assert.equal(observed.connection.isLoopback, true, 'the DVR client must honor the loopback page authority')
   assert.equal(observed.connection.rpc, connection.rpc)
+  assert.equal(observed.scope, form)
+})
+
+test('0.1.7 full settings wrapper stack preserves loopback authority and native configForms', () => {
+  let loadedSpec
+  const connection = { isLoopback: false, rpc: { call() {} } }
+  const form = {
+    getSnapshot() { return { status: 'ready', value: {}, revision: 0, writable: true, mode: 'host' } },
+    subscribe() { return () => {} },
+    async set() { return true },
+    async unset() { return true },
+    async mutate() { return true },
+  }
+  const configForms = { get() { return form } }
+  const loader = {
+    mode: 'live',
+    load(spec) {
+      loadedSpec = spec
+      return spec
+    },
+    create() { return this },
+  }
+  const window = {
+    __ModuleLoader__: loader,
+    location: { hostname: '127.0.0.1' },
+    confirm() { return false },
+    alert() {},
+  }
+  const sandbox = {
+    window,
+    fetch: async () => { throw new Error('unexpected fetch') },
+    document: { documentElement: { lang: 'en' } },
+    navigator: { language: 'en' },
+  }
+
+  // This is the real server transform registration order: the 0.1.7 bridge is
+  // installed before the mature configForms and rc8 lifecycle wrappers.
+  runInNewContext(SETTINGS_017_CLIENT_PRELUDE, sandbox)
+  runInNewContext(SETTINGS_CONFIG_FORMS_CLIENT_PRELUDE, sandbox)
+  runInNewContext(SETTINGS_RC8_CLIENT_PRELUDE, sandbox)
+  loader.create()
+
+  const observed = {}
+  loader.load({
+    id: 'dsh-vision-router',
+    factory: () => ({
+      inject: ['settingsScope', 'slots', 'locale', 'sessions', 'remote'],
+      apply(ctx) {
+        observed.connection = ctx.get('connection')
+        observed.scope = ctx.settingsScope.bind({ namespace: 'vision-router' })
+      },
+    }),
+  })
+
+  const plugin = loadedSpec.factory(() => undefined)
+  assert.deepEqual(
+    Array.from(plugin.inject),
+    ['configForms', 'slots', 'locale', 'sessions', 'remote'],
+  )
+  plugin.apply({
+    configForms,
+    get(name) {
+      if (name === 'connection') return connection
+      if (name === 'configForms') return configForms
+      return undefined
+    },
+  })
+
+  assert.equal(connection.isLoopback, false)
+  assert.equal(observed.connection.isLoopback, true)
   assert.equal(observed.scope, form)
 })
 
