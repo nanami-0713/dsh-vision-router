@@ -244,8 +244,16 @@ test('0.1.7 full settings wrapper stack preserves loopback authority and DVR loc
   assert.equal(observed.connection.isLoopback, true)
   await observed.scope.load()
   assert.equal(observed.scope.getSnapshot().mode, 'host')
-  await observed.scope.set('structuredVisionBootstrap', true)
+  const fetchedBeforeBatch = fetched
+  await observed.scope.__visionRouterWritePlan([
+    { key: 'structuredVisionBootstrap', run: { value: true } },
+    { key: 'visionDepth', run: { value: 'fast' } },
+  ])
+  assert.equal(fetched, fetchedBeforeBatch + 1, 'one UI save must produce exactly one compatibility POST')
   assert.equal(observed.scope.getSnapshot().value.structuredVisionBootstrap, true)
+  assert.equal(observed.scope.getSnapshot().value.visionDepth, 'fast')
+  assert.equal(observed.scope.getSnapshot().user.structuredVisionBootstrap, true)
+  assert.equal(observed.scope.getSnapshot().user.visionDepth, 'fast')
   assert.equal(formSets, 0, 'DVR writes must not require volatile Config semantics from native configForms')
   assert.ok(fetched >= 2, 'the composed DVR scope must read and write through the local-only bridge')
 })

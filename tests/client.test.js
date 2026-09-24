@@ -164,6 +164,39 @@ test('commitSettingsPlan clears only fields that landed during a partial save', 
   ])
 })
 
+test('commitSettingsPlan batches multi-field DVR compatibility saves into one Host transaction', async () => {
+  const bundle = loadClientBundle()
+  const snapshot = { status: 'ready', writable: true, user: {} }
+  const drafts = { structuredVisionBootstrap: true, visionDepth: 'fast' }
+  let batches = 0
+  let individualWrites = 0
+  const scope = {
+    async __visionRouterWritePlan(items) {
+      batches += 1
+      assert.equal(items.length, 2)
+      for (const item of items) {
+        if (item.run.clear) delete snapshot.user[item.key]
+        else snapshot.user[item.key] = structuredClone(item.run.value)
+      }
+    },
+    async set() { individualWrites += 1 },
+    async unset() { individualWrites += 1 },
+    getSnapshot() { return snapshot },
+  }
+
+  const outcome = await bundle.commitSettingsPlan(scope, [
+    { key: 'structuredVisionBootstrap', run: { value: true } },
+    { key: 'visionDepth', run: { value: 'fast' } },
+  ], drafts)
+
+  assert.equal(batches, 1)
+  assert.equal(individualWrites, 0)
+  assert.equal(outcome.landed, true)
+  assert.deepEqual(outcome.landedFields, ['structuredVisionBootstrap', 'visionDepth'])
+  assert.deepEqual(outcome.nextDrafts, {})
+  assert.deepEqual(outcome.failures, [])
+})
+
 test('commitSettingsPlan requires unset to remove the user-layer own property', async () => {
   const bundle = loadClientBundle()
   const plan = [{ key: 'proxyHosts', run: { clear: true } }]
