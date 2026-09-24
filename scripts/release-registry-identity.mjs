@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { appendFile } from 'node:fs/promises'
 
-const DEFAULT_REGISTRY = 'https://registry.npmjs.org'
+const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
 const DEFAULT_DELAY_MS = 5_000
 const DEFAULT_WAIT_ATTEMPTS = 120
 const DEFAULT_PROBE_ATTEMPTS = 3
@@ -10,17 +10,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function registryBase(value = process.env.NPM_CONFIG_REGISTRY || DEFAULT_REGISTRY) {
-  return String(value || DEFAULT_REGISTRY).replace(/\/+$/, '')
-}
-
-export async function lookupRegistryIdentity({ packageName, version, fetchImpl = fetch, registry = registryBase() }) {
-  const encodedPackage = packageName.startsWith('@')
-    ? packageName.replace('/', '%2f')
-    : encodeURIComponent(packageName)
+export async function lookupRegistryIdentity({ packageName, version, fetchImpl = fetch }) {
+  const encodedPackage = encodeURIComponent(packageName)
   let response
   try {
-    response = await fetchImpl(`${registry}/${encodedPackage}/${encodeURIComponent(version)}`, {
+    response = await fetchImpl(`${NPM_REGISTRY_ORIGIN}/${encodedPackage}/${encodeURIComponent(version)}`, {
       headers: { accept: 'application/vnd.npm.install-v1+json, application/json' },
       cache: 'no-store',
     })
@@ -48,14 +42,13 @@ export async function waitForRegistryIdentity({
   version,
   expectedSha1,
   fetchImpl = fetch,
-  registry = registryBase(),
   attempts = DEFAULT_WAIT_ATTEMPTS,
   delayMs = DEFAULT_DELAY_MS,
   sleepImpl = sleep,
   onWait = () => {},
 }) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const result = await lookupRegistryIdentity({ packageName, version, fetchImpl, registry })
+    const result = await lookupRegistryIdentity({ packageName, version, fetchImpl })
     if (result.state === 'visible') {
       if (result.sha1 !== expectedSha1) {
         return { state: 'mismatch', attempt, remoteSha1: result.sha1 }

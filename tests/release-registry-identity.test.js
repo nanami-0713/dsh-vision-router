@@ -10,6 +10,19 @@ function response(status, body = {}) {
   }
 }
 
+test('registry identity always targets the fixed public npm origin', async () => {
+  let requestedUrl = ''
+  await lookupRegistryIdentity({
+    packageName: '@scope/pkg',
+    version: '1.0.0+build',
+    fetchImpl: async (url) => {
+      requestedUrl = url
+      return response(404)
+    },
+  })
+  assert.equal(requestedUrl, 'https://registry.npmjs.org/%40scope%2Fpkg/1.0.0%2Bbuild')
+})
+
 test('registry lookup distinguishes missing, transient and exact identities', async () => {
   assert.deepEqual(
     await lookupRegistryIdentity({ packageName: 'pkg', version: '1.0.0', fetchImpl: async () => response(404) }),
