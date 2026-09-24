@@ -9,6 +9,7 @@ on:
       - 'lib/session-message-source-compat.js'
       - 'lib/web/remote-settings-client.js'
       - 'lib/web-capability-boundary.js'
+      - 'tests/dsh017-client-loader-activation.test.js'
       - 'tests/dsh017-settings-session-compat.cases.js'
       - 'tests/remote-settings-v2-contract.test.js'
       - 'scripts/dsh017-source-contract.mjs'
@@ -23,6 +24,7 @@ on:
       - 'lib/session-message-source-compat.js'
       - 'lib/web/remote-settings-client.js'
       - 'lib/web-capability-boundary.js'
+      - 'tests/dsh017-client-loader-activation.test.js'
       - 'tests/dsh017-settings-session-compat.cases.js'
       - 'tests/remote-settings-v2-contract.test.js'
       - 'scripts/dsh017-source-contract.mjs'
@@ -97,7 +99,7 @@ jobs:
 
       - name: Verify DVR compatibility regressions
         working-directory: dvr
-        run: node --test tests/remote-settings-v2-contract.test.js
+        run: node --test tests/dsh017-client-loader-activation.test.js tests/dsh017-settings-session-compat.cases.js tests/remote-settings-v2-contract.test.js
 
       - name: Assert modules -> webServer overlay still belongs to DVR
         working-directory: dsh-exact
