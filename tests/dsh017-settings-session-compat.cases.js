@@ -98,22 +98,6 @@ function make017SettingsHarness() {
   }
 }
 
-test('DSH 0.1.7 compatibility unwraps root volatile Config snapshots before cloning', () => {
-  const write = Symbol.for('cosmokit.volatile.write')
-  const snapshot = Object.freeze({ routing: false, allowRemoteSettings: false, tool: true })
-  const volatileConfig = Object.freeze({
-    get: () => snapshot,
-    [write]: () => {},
-  })
-  const harness = make017SettingsHarness()
-  const wrapped = installDsh017SettingsCompatibility(harness.ctx, volatileConfig)
-  harness.mountEditor()
-  const descriptor = wrapped.get('settings').describe()[0]
-  assert.equal(descriptor.value.tool, true)
-  assert.equal(descriptor.value.routing, false)
-  assert.doesNotThrow(() => structuredClone(descriptor))
-})
-
 test('DSH 0.1.7 settings compatibility activates only after ConfigEditor mounts and persists through edit()', async () => {
   const harness = make017SettingsHarness()
   assert.equal(harness.wrapped.get('settings'), harness.nativeSettings, 'pre-mount settings stays host-native')

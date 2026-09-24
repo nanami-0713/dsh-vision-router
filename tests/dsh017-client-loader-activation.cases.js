@@ -9,13 +9,6 @@ import {
 import { SETTINGS_CONFIG_FORMS_CLIENT_PRELUDE } from '../lib/web/remote-settings-client.js'
 import { SETTINGS_RC8_CLIENT_PRELUDE } from '../lib/settings-client-rc8-lifecycle.js'
 
-import { Config as PublicConfig } from '../entry.js'
-
-test('0.1.7 public Config exposes a volatile SettingsForms namespace', () => {
-  assert.equal(PublicConfig.meta?.volatile, true)
-  assert.equal(Object.keys(PublicConfig.dict ?? {}).includes('structuredVisionBootstrap'), true)
-})
-
 test('0.1.7 server-side client shim is fenced by ConfigEditor availability', () => {
   let dependencies
   let taps = 0
@@ -41,27 +34,13 @@ test('0.1.7 server-side client shim is fenced by ConfigEditor availability', () 
   assert.equal(taps, 1)
 })
 
-test('0.1.7 prelude replaces legacy settingsScope activation with native configForms', () => {
+test('0.1.7 prelude keeps configForms activation but binds DVR through the local ConfigEditor bridge', async () => {
   let loadedSpec
   let fetched = 0
   let requestedNamespace
   const form = {
-    getSnapshot() {
-      return {
-        status: 'ready',
-        value: { routing: false },
-        base: {},
-        user: {},
-        revision: 0,
-        writable: true,
-        mode: 'host',
-      }
-    },
+    getSnapshot() { return { status: 'ready', value: { native: true }, revision: 0, writable: true, mode: 'host' } },
     subscribe() { return () => {} },
-    async set() { return true },
-    async unset() { return true },
-    async mutate() { return true },
-    async dispose() {},
   }
   const configForms = {
     get(namespace) {
@@ -82,7 +61,12 @@ test('0.1.7 prelude replaces legacy settingsScope activation with native configF
     window,
     fetch: async () => {
       fetched += 1
-      throw new Error('the native configForms path must not use the fallback HTTP transport')
+      return {
+        ok: true,
+        async json() {
+          return { ok: true, value: { value: { routing: false }, base: {}, user: {}, revision: 0, writable: true } }
+        },
+      }
     },
   }
 
@@ -107,9 +91,13 @@ test('0.1.7 prelude replaces legacy settingsScope activation with native configF
   )
   assert.equal(plugin.apply({ configForms }), 'applied')
   assert.equal(typeof observed.ctx.settingsScope.bind, 'function')
-  assert.equal(observed.ctx.settingsScope.bind({ namespace: 'vision-router' }), form)
-  assert.equal(requestedNamespace, 'vision-router')
-  assert.equal(fetched, 0)
+  const scope = observed.ctx.settingsScope.bind({ namespace: 'vision-router' })
+  assert.notEqual(scope, form, 'DVR must not depend on a native volatile form across the legacy Host window')
+  await scope.load()
+  assert.equal(scope.getSnapshot().status, 'ready')
+  assert.equal(scope.getSnapshot().value.routing, false)
+  assert.equal(requestedNamespace, undefined, 'DVR namespace must stay on the compatibility transport')
+  assert.ok(fetched >= 1)
 })
 
 test('0.1.7 prelude normalizes loopback page authority for lazy Connection reads', () => {
@@ -162,13 +150,16 @@ test('0.1.7 prelude normalizes loopback page authority for lazy Connection reads
   assert.equal(connection.isLoopback, false, 'the underlying Host service must remain untouched')
   assert.equal(observed.connection.isLoopback, true, 'the DVR client must honor the loopback page authority')
   assert.equal(observed.connection.rpc, connection.rpc)
-  assert.equal(observed.scope, form)
+  assert.notEqual(observed.scope, form)
+  assert.equal(typeof observed.scope.reload, 'function')
 })
 
-test('0.1.7 full settings wrapper stack preserves loopback authority and native configForms', async () => {
+test('0.1.7 full settings wrapper stack preserves loopback authority and DVR local persistence', async () => {
   let loadedSpec
   let fetched = 0
   let formSets = 0
+  let revision = 0
+  let stored = {}
   const connection = { isLoopback: false, rpc: { call() {} } }
   const form = {
     getSnapshot() { return { status: 'ready', value: {}, revision: 0, writable: true, mode: 'host' } },
@@ -194,13 +185,30 @@ test('0.1.7 full settings wrapper stack preserves loopback authority and native 
   }
   const sandbox = {
     window,
-    fetch: async () => { fetched += 1; throw new Error('unexpected fetch') },
+    fetch: async (_url, options = {}) => {
+      fetched += 1
+      const method = options.method || 'GET'
+      if (method === 'POST') {
+        const payload = JSON.parse(options.body)
+        for (const op of payload.ops || []) {
+          const field = op.path && op.path[0]
+          if (!field) continue
+          if (op.op === 'set') stored[field] = op.value
+          else delete stored[field]
+        }
+        revision += 1
+      }
+      return {
+        ok: true,
+        async json() {
+          return { ok: true, value: { value: { ...stored }, base: {}, user: { ...stored }, revision, writable: true } }
+        },
+      }
+    },
     document: { documentElement: { lang: 'en' } },
     navigator: { language: 'en' },
   }
 
-  // This is the real server transform registration order: the 0.1.7 bridge is
-  // installed before the mature configForms and rc8 lifecycle wrappers.
   runInNewContext(SETTINGS_017_CLIENT_PRELUDE, sandbox)
   runInNewContext(SETTINGS_CONFIG_FORMS_CLIENT_PRELUDE, sandbox)
   runInNewContext(SETTINGS_RC8_CLIENT_PRELUDE, sandbox)
@@ -234,10 +242,12 @@ test('0.1.7 full settings wrapper stack preserves loopback authority and native 
 
   assert.equal(connection.isLoopback, false)
   assert.equal(observed.connection.isLoopback, true)
+  await observed.scope.load()
   assert.equal(observed.scope.getSnapshot().mode, 'host')
   await observed.scope.set('structuredVisionBootstrap', true)
-  assert.equal(formSets, 1, 'the composed scope must delegate ordinary writes to native configForms')
-  assert.equal(fetched, 0, 'the composed native path must not fall back to local HTTP')
+  assert.equal(observed.scope.getSnapshot().value.structuredVisionBootstrap, true)
+  assert.equal(formSets, 0, 'DVR writes must not require volatile Config semantics from native configForms')
+  assert.ok(fetched >= 2, 'the composed DVR scope must read and write through the local-only bridge')
 })
 
 test('0.1.7 prelude restores configForms dependency when another loader shim stripped settingsScope first', () => {
