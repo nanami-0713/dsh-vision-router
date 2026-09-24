@@ -91,22 +91,23 @@ async function openVisionRouterSettings(page) {
   const root = dialog.locator('[data-vr-settings-ia="1"]')
   await root.waitFor({ state: 'visible', timeout: 15_000 })
   assert.equal(await root.count(), 1, 'Vision Router Settings 2.0 must mount exactly once')
-  assert.equal(await root.getAttribute('data-vr-dirty'), '0')
-  assert.equal(await root.getAttribute('data-vr-invalid'), '0')
+  await root.getByRole('button', { name: 'General', exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+  assert.equal(await root.locator('.vr-ia-savebar').count(), 0, 'fresh Settings mount must not start dirty')
+  assert.equal(await root.locator('.vr-failed').count(), 0, 'fresh Settings mount must not start with validation failures')
   return { dialog, root }
 }
 
-async function openStrategyCard(root) {
-  const card = root.locator('li.vr-ia-plugin-card').filter({ hasText: 'Vision strategy' }).first()
-  await card.waitFor({ state: 'visible', timeout: 15_000 })
-  const header = card.locator('button.vr-ia-plugin-card-header')
-  if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click()
-  await card.locator('.vr-ia-plugin-card-body').waitFor({ state: 'visible', timeout: 10_000 })
-  return card
+async function openStrategyPage(root) {
+  const nav = root.getByRole('button', { name: 'Vision strategy', exact: true })
+  await nav.waitFor({ state: 'visible', timeout: 15_000 })
+  await nav.click()
+  const main = root.locator('.vr-ia-main')
+  await main.getByRole('heading', { name: 'Vision strategy', exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+  return main
 }
 
-async function strategyControls(card) {
-  const structuredRow = card.locator('.vr-ia-toggle-row').filter({ hasText: 'Structured pre-scan (1+x)' }).first()
+async function strategyControls(strategy) {
+  const structuredRow = strategy.locator('.vr-ia-toggle-row').filter({ hasText: 'Structured pre-scan (1+x)' }).first()
   await structuredRow.waitFor({ state: 'visible', timeout: 10_000 })
   const structured = structuredRow.locator('input[type="checkbox"]').first()
   await structured.waitFor({ state: 'attached', timeout: 10_000 })
@@ -222,25 +223,24 @@ try {
   let { dialog, root } = await openVisionRouterSettings(page)
 
   stage = 'settings-edit'
-  let strategy = await openStrategyCard(root)
+  let strategy = await openStrategyPage(root)
   let controls = await strategyControls(strategy)
   assert.equal(await controls.structured.isChecked(), false, 'structured pre-scan must start at the default false value')
   await controls.structured.click()
   const depth = await controls.depth()
   assert.equal(await depth.inputValue(), 'standard', 'vision depth must start at the default standard value')
   await depth.selectOption('fast')
-  assert.equal(await root.getAttribute('data-vr-dirty'), '1', 'editing Settings must mark the IA dirty')
+  const savebar = root.locator('.vr-ia-savebar')
+  await savebar.waitFor({ state: 'visible', timeout: 10_000 })
+  assert.equal(await root.locator('.vr-failed').count(), 0, 'valid strategy edits must not create validation failures')
 
   stage = 'settings-save'
-  const save = strategy.locator('button.vr-ia-save')
+  const save = savebar.locator('button.vr-btn-save')
   await save.waitFor({ state: 'visible', timeout: 10_000 })
   assert.equal(await save.isEnabled(), true, 'strategy save must be enabled for a valid dirty edit')
   await save.click()
-  await page.waitForFunction(() => {
-    const mounted = document.querySelector('[data-vr-settings-ia="1"]')
-    return mounted?.getAttribute('data-vr-dirty') === '0'
-  }, undefined, { timeout: 15_000 })
-  assert.equal(await strategy.locator('button.vr-ia-plugin-card-header').getAttribute('aria-expanded'), 'false')
+  await savebar.waitFor({ state: 'hidden', timeout: 15_000 })
+  await root.locator('.vr-ia-toast').filter({ hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 })
 
   stage = 'settings-reload'
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
@@ -249,13 +249,13 @@ try {
 
   stage = 'settings-readback'
   ;({ dialog, root } = await openVisionRouterSettings(page))
-  strategy = await openStrategyCard(root)
+  strategy = await openStrategyPage(root)
   controls = await strategyControls(strategy)
   assert.equal(await controls.structured.isChecked(), true, 'structured pre-scan must persist through a real Host/browser reload')
   const reloadedDepth = await controls.depth()
   assert.equal(await reloadedDepth.inputValue(), 'fast', 'vision depth must persist through a real Host/browser reload')
-  assert.equal(await root.getAttribute('data-vr-dirty'), '0')
-  assert.equal(await root.getAttribute('data-vr-invalid'), '0')
+  assert.equal(await root.locator('.vr-ia-savebar').count(), 0, 'reloaded Settings must be clean after persisted readback')
+  assert.equal(await root.locator('.vr-failed').count(), 0, 'reloaded Settings must not surface validation failures')
 
   const pageErrors = diagnostics.filter((line) => line.startsWith('pageerror:'))
   assert.deepEqual(pageErrors, [], `Settings lifecycle emitted browser page errors:\n${pageErrors.join('\n')}`)
