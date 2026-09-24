@@ -1023,12 +1023,16 @@ test('remote writable state comes from Host instead of being hard-coded true', a
   await scope.dispose()
 })
 
-test('remote-page selection survives Connection arriving after plugin activation', () => {
+test('browser page authority wins over contradictory Connection loopback hints', () => {
   const bundle = loadClientBundle()
   assert.equal(bundle.shouldUseRemoteSettings(() => undefined, { hostname: '192.168.1.44' }), true)
   assert.equal(bundle.shouldUseRemoteSettings(() => undefined, { hostname: 'example.internal' }), true)
   assert.equal(bundle.shouldUseRemoteSettings(() => undefined, { hostname: '127.0.0.1' }), false)
   assert.equal(bundle.shouldUseRemoteSettings(() => undefined, { hostname: 'localhost' }), false)
+  assert.equal(bundle.shouldUseRemoteSettings(() => ({ isLoopback: false }), { hostname: '127.0.0.1' }), false)
+  assert.equal(bundle.shouldUseRemoteSettings(() => ({ isLoopback: false }), { hostname: 'localhost' }), false)
+  assert.equal(bundle.shouldUseRemoteSettings(() => ({ isLoopback: true }), { hostname: '192.168.1.44' }), true)
+  assert.equal(bundle.shouldUseRemoteSettings(() => ({ isLoopback: true }), { hostname: 'example.internal' }), true)
 })
 
 test('removed legacy plugin entry cannot reappear and remote host-only surfaces stay hidden', () => {

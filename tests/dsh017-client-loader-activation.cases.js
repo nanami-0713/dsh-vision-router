@@ -158,13 +158,15 @@ test('0.1.7 prelude normalizes loopback page authority for lazy Connection reads
   assert.equal(observed.scope, form)
 })
 
-test('0.1.7 full settings wrapper stack preserves loopback authority and native configForms', () => {
+test('0.1.7 full settings wrapper stack preserves loopback authority and native configForms', async () => {
   let loadedSpec
+  let fetched = 0
+  let formSets = 0
   const connection = { isLoopback: false, rpc: { call() {} } }
   const form = {
     getSnapshot() { return { status: 'ready', value: {}, revision: 0, writable: true, mode: 'host' } },
     subscribe() { return () => {} },
-    async set() { return true },
+    async set() { formSets += 1; return true },
     async unset() { return true },
     async mutate() { return true },
   }
@@ -185,7 +187,7 @@ test('0.1.7 full settings wrapper stack preserves loopback authority and native 
   }
   const sandbox = {
     window,
-    fetch: async () => { throw new Error('unexpected fetch') },
+    fetch: async () => { fetched += 1; throw new Error('unexpected fetch') },
     document: { documentElement: { lang: 'en' } },
     navigator: { language: 'en' },
   }
@@ -225,7 +227,10 @@ test('0.1.7 full settings wrapper stack preserves loopback authority and native 
 
   assert.equal(connection.isLoopback, false)
   assert.equal(observed.connection.isLoopback, true)
-  assert.equal(observed.scope, form)
+  assert.equal(observed.scope.getSnapshot().mode, 'host')
+  await observed.scope.set('structuredVisionBootstrap', true)
+  assert.equal(formSets, 1, 'the composed scope must delegate ordinary writes to native configForms')
+  assert.equal(fetched, 0, 'the composed native path must not fall back to local HTTP')
 })
 
 test('0.1.7 prelude restores configForms dependency when another loader shim stripped settingsScope first', () => {
