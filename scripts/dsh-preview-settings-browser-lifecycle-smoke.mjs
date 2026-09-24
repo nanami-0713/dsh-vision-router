@@ -15,6 +15,7 @@ const dshRequire = createRequire(join(dshRoot, 'package.json'))
 const webRequire = createRequire(join(dshRoot, 'apps/web/package.json'))
 const tsxLoader = pathToFileURL(dshRequire.resolve('tsx')).href
 const cli = join(dshRoot, 'apps/cli/src/bin.ts')
+const localSettingsPath = '/_dsh/vision-router/local-settings'
 
 function setOutput(name, value) {
   const output = process.env.GITHUB_OUTPUT
@@ -163,6 +164,7 @@ const env = {
 let child
 let browser
 let page
+let hostOutput = ''
 let stage = 'resolve-playwright'
 const diagnostics = []
 
@@ -185,6 +187,11 @@ try {
     ['--import', tsxLoader, cli, 'web', '--no-open', '--port', '0'],
     { cwd: rootDir, env, stdio: ['ignore', 'pipe', 'pipe'] },
   )
+  const recordHostOutput = (chunk) => {
+    hostOutput = `${hostOutput}${chunk.toString()}`.slice(-32_000)
+  }
+  child.stdout?.on('data', recordHostOutput)
+  child.stderr?.on('data', recordHostOutput)
   const readyUrl = await waitForReadyLine(child)
 
   stage = 'browser-launch'
@@ -194,6 +201,17 @@ try {
   page.on('pageerror', (error) => diagnostics.push(`pageerror: ${error.message}`))
   page.on('console', (message) => {
     if (message.type() === 'error') diagnostics.push(`console error: ${message.text()}`)
+  })
+  page.on('request', (request) => {
+    if (request.url().includes(localSettingsPath)) diagnostics.push(`settings request: ${request.method()} ${request.url()}`)
+  })
+  page.on('response', (response) => {
+    if (response.url().includes(localSettingsPath)) diagnostics.push(`settings response: ${response.status()} ${response.url()}`)
+  })
+  page.on('requestfailed', (request) => {
+    if (request.url().includes(localSettingsPath)) {
+      diagnostics.push(`settings request failed: ${request.method()} ${request.url()} ${request.failure()?.errorText || 'unknown'}`)
+    }
   })
 
   stage = 'open-page'
@@ -255,6 +273,7 @@ try {
   setOutput('status', 'fail')
   setOutput('stage', stage)
   setOutput('detail', error instanceof Error ? error.message : String(error))
+  if (hostOutput.trim()) diagnostics.push(`host output tail:\n${hostOutput.slice(-24_000)}`)
   await captureFailure(page, stage, error, diagnostics)
   throw error
 } finally {

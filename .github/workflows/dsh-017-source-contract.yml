@@ -1,0 +1,113 @@
+name: DSH 0.1.7 source contract
+
+on:
+  pull_request:
+    paths:
+      - 'lib/public-entry.js'
+      - 'lib/dsh-settings-017-compat.js'
+      - 'lib/settings-client-017-compat.js'
+      - 'lib/session-message-source-compat.js'
+      - 'lib/web/dsh-settings-017-root-transport.js'
+      - 'lib/web/remote-settings-client.js'
+      - 'lib/web-capability-boundary.js'
+      - 'tests/dsh017-client-loader-activation.cases.js'
+      - 'tests/dsh017-settings-session-compat.cases.js'
+      - 'tests/dsh017-root-settings-transport.cases.js'
+      - 'tests/remote-settings-v2-contract.test.js'
+      - 'scripts/dsh017-source-contract.mjs'
+      - 'scripts/dsh-web-modules-overlay-contract.mjs'
+      - '.github/workflows/dsh-017-source-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'lib/public-entry.js'
+      - 'lib/dsh-settings-017-compat.js'
+      - 'lib/settings-client-017-compat.js'
+      - 'lib/session-message-source-compat.js'
+      - 'lib/web/dsh-settings-017-root-transport.js'
+      - 'lib/web/remote-settings-client.js'
+      - 'lib/web-capability-boundary.js'
+      - 'tests/dsh017-client-loader-activation.cases.js'
+      - 'tests/dsh017-settings-session-compat.cases.js'
+      - 'tests/dsh017-root-settings-transport.cases.js'
+      - 'tests/remote-settings-v2-contract.test.js'
+      - 'scripts/dsh017-source-contract.mjs'
+      - 'scripts/dsh-web-modules-overlay-contract.mjs'
+      - '.github/workflows/dsh-017-source-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  exact-017-contract:
+    name: DSH 0.1.7-rc.1 / ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: '22.19.0'
+          - os: macos-latest
+            node: '22.19.0'
+          - os: windows-latest
+            node: '22.19.0'
+          - os: ubuntu-latest
+            node: '24'
+    steps:
+      - name: Checkout Vision Router
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          path: dvr
+
+      - name: Checkout exact DSH 0.1.7-rc.1 source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: 46a7f68b0922371ce7144b668b90e377d8e799f4
+          persist-credentials: false
+          path: dsh-exact
+
+      - name: Install exact Host package manager
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.7.0
+
+      - name: Install Node contract runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: dsh-exact/pnpm-lock.yaml
+
+      - name: Install exact Host workspace dependencies
+        working-directory: dsh-exact
+        env:
+          CI: 'true'
+          LEFTHOOK: '0'
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify exact 0.1.7 Settings and Session contracts
+        working-directory: dsh-exact
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-exact
+          DSH_EXPECTED_VERSION: 0.1.7-rc.1
+          DSH_EXPECTED_COMMIT: 46a7f68b0922371ce7144b668b90e377d8e799f4
+        run: pnpm exec tsx ../dvr/scripts/dsh017-source-contract.mjs
+
+      - name: Verify DVR compatibility regressions
+        working-directory: dvr
+        run: node --test tests/dsh017-client-loader-activation.cases.js tests/dsh017-settings-session-compat.cases.js tests/dsh017-root-settings-transport.cases.js tests/remote-settings-v2-contract.test.js
+
+      - name: Assert modules -> webServer overlay still belongs to DVR
+        working-directory: dsh-exact
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-exact
+          DSH_MODULES_WEBSERVER_EXPECTED: shim-required
+        run: pnpm exec tsx ../dvr/scripts/dsh-web-modules-overlay-contract.mjs
