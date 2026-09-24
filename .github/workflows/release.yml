@@ -289,7 +289,7 @@ jobs:
         env:
           RELEASE_REGISTRY_PROBE_ATTEMPTS: '3'
           RELEASE_REGISTRY_DELAY_MS: '2000'
-        run: node scripts/release-registry-identity.mjs probe dsh-vision-router "$RELEASE_VERSION" "$PACKAGE_SHA1"
+        run: node scripts/release-registry-identity.mjs probe "$RELEASE_VERSION" "$PACKAGE_SHA1"
 
       - name: Publish exact tarball to npm with trusted OIDC
         if: steps.registry.outputs.already_published == 'false'
@@ -303,7 +303,7 @@ jobs:
           # not as a failed publish, while preserving fail-closed SHA identity.
           RELEASE_REGISTRY_WAIT_ATTEMPTS: '120'
           RELEASE_REGISTRY_DELAY_MS: '5000'
-        run: node scripts/release-registry-identity.mjs wait dsh-vision-router "$RELEASE_VERSION" "$PACKAGE_SHA1"
+        run: node scripts/release-registry-identity.mjs wait "$RELEASE_VERSION" "$PACKAGE_SHA1"
 
       - name: Generate signed SLSA provenance for the exact tarball
         id: attest

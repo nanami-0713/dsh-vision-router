@@ -2,6 +2,7 @@
 import { appendFile } from 'node:fs/promises'
 
 const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
+const RELEASE_PACKAGE_NAME = 'dsh-vision-router'
 const DEFAULT_DELAY_MS = 5_000
 const DEFAULT_WAIT_ATTEMPTS = 120
 const DEFAULT_PROBE_ATTEMPTS = 3
@@ -69,10 +70,11 @@ async function writeOutput(path, key, value) {
 }
 
 async function main(argv) {
-  const [mode, packageName, version, expectedSha1] = argv
-  if (!['probe', 'wait'].includes(mode) || !packageName || !version || !expectedSha1) {
-    throw new Error('usage: release-registry-identity.mjs <probe|wait> <package> <version> <expected-sha1>')
+  const [mode, version, expectedSha1] = argv
+  if (!['probe', 'wait'].includes(mode) || !version || !expectedSha1 || argv.length !== 3) {
+    throw new Error('usage: release-registry-identity.mjs <probe|wait> <version> <expected-sha1>')
   }
+  const packageName = RELEASE_PACKAGE_NAME
   const attempts = mode === 'probe'
     ? Number(process.env.RELEASE_REGISTRY_PROBE_ATTEMPTS || DEFAULT_PROBE_ATTEMPTS)
     : Number(process.env.RELEASE_REGISTRY_WAIT_ATTEMPTS || DEFAULT_WAIT_ATTEMPTS)
