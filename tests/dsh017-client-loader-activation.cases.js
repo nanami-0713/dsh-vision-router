@@ -103,6 +103,59 @@ test('0.1.7 prelude replaces legacy settingsScope activation with native configF
   assert.equal(fetched, 0)
 })
 
+test('0.1.7 prelude normalizes loopback page authority for lazy Connection reads', () => {
+  let loadedSpec
+  const connection = { isLoopback: false, rpc: { call() {} } }
+  const form = {
+    getSnapshot() { return { status: 'ready', value: {}, revision: 0, writable: true, mode: 'host' } },
+    subscribe() { return () => {} },
+  }
+  const configForms = { get() { return form } }
+  const services = new Map([
+    ['connection', connection],
+    ['configForms', configForms],
+  ])
+  const loader = {
+    mode: 'live',
+    load(spec) {
+      loadedSpec = spec
+      return spec
+    },
+    create() { return this },
+  }
+  const window = {
+    __ModuleLoader__: loader,
+    location: { hostname: '127.0.0.1' },
+  }
+  runInNewContext(SETTINGS_017_CLIENT_PRELUDE, {
+    window,
+    fetch: async () => { throw new Error('unexpected fetch') },
+  })
+
+  const observed = {}
+  loader.load({
+    id: 'dsh-vision-router',
+    factory: () => ({
+      inject: ['settingsScope', 'slots', 'locale', 'sessions', 'remote'],
+      apply(ctx) {
+        observed.connection = ctx.get('connection')
+        observed.scope = ctx.settingsScope.bind({ namespace: 'vision-router' })
+      },
+    }),
+  })
+
+  const plugin = loadedSpec.factory(() => undefined)
+  plugin.apply({
+    configForms,
+    get(name) { return services.get(name) },
+  })
+
+  assert.equal(connection.isLoopback, false, 'the underlying Host service must remain untouched')
+  assert.equal(observed.connection.isLoopback, true, 'the DVR client must honor the loopback page authority')
+  assert.equal(observed.connection.rpc, connection.rpc)
+  assert.equal(observed.scope, form)
+})
+
 test('0.1.7 prelude restores configForms dependency when another loader shim stripped settingsScope first', () => {
   let loadedSpec
   const loader = {
