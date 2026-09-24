@@ -54,6 +54,15 @@ core.Config.set(
   z.number().step(1).min(1).max(SETTINGS_CONTRACT_REVISION).default(SETTINGS_CONTRACT_REVISION),
 )
 
+// DSH 0.1.7 SettingsForms deliberately publishes only Config fields marked
+// volatile. Vision Router's settings are already runtime-owned and validated
+// through this schema, so mark the root as live-editable. Older DSH releases
+// ignore this metadata; 0.1.7 uses it to expose the namespace through the
+// official configForms service instead of forcing the compatibility HTTP path.
+if (core.Config?.meta && typeof core.Config.meta === 'object') {
+  core.Config.meta.volatile = true
+}
+
 export * from './index.js'
 export { sessionSurfaceReplacementIntent } from './lib/session-surface-compat.js'
 export {

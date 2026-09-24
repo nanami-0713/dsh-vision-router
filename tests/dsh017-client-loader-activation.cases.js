@@ -9,6 +9,13 @@ import {
 import { SETTINGS_CONFIG_FORMS_CLIENT_PRELUDE } from '../lib/web/remote-settings-client.js'
 import { SETTINGS_RC8_CLIENT_PRELUDE } from '../lib/settings-client-rc8-lifecycle.js'
 
+import { Config as PublicConfig } from '../entry.js'
+
+test('0.1.7 public Config exposes a volatile SettingsForms namespace', () => {
+  assert.equal(PublicConfig.meta?.volatile, true)
+  assert.equal(Object.keys(PublicConfig.dict ?? {}).includes('structuredVisionBootstrap'), true)
+})
+
 test('0.1.7 server-side client shim is fenced by ConfigEditor availability', () => {
   let dependencies
   let taps = 0
