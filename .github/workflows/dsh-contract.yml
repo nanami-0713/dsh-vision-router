@@ -37,7 +37,7 @@ jobs:
             session_log_read: 'true'
             image_offload: 'false'
           - name: current-contract
-            dsh: 0.1.5-rc.2
+            dsh: 0.1.5-rc.3
             batch: 'true'
             dimension: 'true'
             current: 'true'
@@ -45,7 +45,7 @@ jobs:
             session_log_read: 'true'
             image_offload: 'false'
           - name: preview-contract
-            dsh: 0.1.6-alpha.1
+            dsh: 0.1.7-rc.2
             batch: 'true'
             dimension: 'true'
             current: 'true'
