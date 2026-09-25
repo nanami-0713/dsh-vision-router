@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   dsh-017-real-host:
-    name: DSH 0.1.7-rc.1 real Host + Chromium
+    name: DSH 0.1.7-rc.2 real Host + Chromium
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -31,11 +31,11 @@ jobs:
           persist-credentials: false
           path: dvr
 
-      - name: Checkout immutable DSH 0.1.7-rc.1 source
+      - name: Checkout immutable DSH 0.1.7-rc.2 source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: 46a7f68b0922371ce7144b668b90e377d8e799f4
+          ref: 477b4f420553e8a52c2fbccc464d7561b239c443
           persist-credentials: false
           path: dsh-017
 
@@ -71,7 +71,7 @@ jobs:
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-017
           DVR_SOURCE_ROOT: ${{ github.workspace }}/dvr
-          DSH_EXPECTED_VERSION: 0.1.7-rc.1
+          DSH_EXPECTED_VERSION: 0.1.7-rc.2
           SMOKE_DIAGNOSTIC_PATH: ${{ runner.temp }}/dsh-017-cold-toggle.json
           SMOKE_SCREENSHOT_PATH: ${{ runner.temp }}/dsh-017-cold-toggle.png
         run: node ../dvr/scripts/alpha-browser-cold-toggle-smoke.mjs
@@ -81,7 +81,7 @@ jobs:
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-017
           DVR_SOURCE_ROOT: ${{ github.workspace }}/dvr
-          DSH_EXPECTED_VERSION: 0.1.7-rc.1
+          DSH_EXPECTED_VERSION: 0.1.7-rc.2
           SMOKE_DIAGNOSTIC_PATH: ${{ runner.temp }}/dsh-017-mixed.json
           SMOKE_SCREENSHOT_PATH: ${{ runner.temp }}/dsh-017-mixed.png
         run: node ../dvr/scripts/dsh-preview-mixed-attachment-paste-smoke.mjs
@@ -91,7 +91,7 @@ jobs:
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/dsh-017
           DVR_SOURCE_ROOT: ${{ github.workspace }}/dvr
-          DSH_EXPECTED_VERSION: 0.1.7-rc.1
+          DSH_EXPECTED_VERSION: 0.1.7-rc.2
           SMOKE_DIAGNOSTIC_PATH: ${{ runner.temp }}/dsh-017-settings.json
           SMOKE_SCREENSHOT_PATH: ${{ runner.temp }}/dsh-017-settings.png
         run: node ../dvr/scripts/dsh-preview-settings-browser-lifecycle-smoke.mjs
