@@ -505,6 +505,31 @@ test('Test 1: a 401 provider is tried exactly once and the next backend takes ov
   assert.equal(mock.calls.get('qwen-b/qwen3.6-plus'), 1)
 })
 
+test('invalid JSON is not cached and falls through to the next backend', async () => {
+  const mock = await applyAndMount(visionConfig(), {
+    behaviors: {
+      'qwen-a/qwen3.6-flash': 'text:not-json',
+      'qwen-b/qwen3.6-plus': 'text:{"summary":"fallback backend succeeded"}',
+    },
+  })
+  const result = JSON.parse(await runDescribe(mock, { json: true }))
+  assert.equal(result.summary, 'fallback backend succeeded')
+  assert.equal(mock.calls.get('qwen-a/qwen3.6-flash'), 2, 'initial answer + one correction retry')
+  assert.equal(mock.calls.get('qwen-b/qwen3.6-plus'), 1)
+
+  // The malformed provider is turn-scoped by the breaker, while the successful
+  // answer itself may be cached. A distinct question proves no stale failure
+  // string can short-circuit a later request.
+  const tool = findTool(mock, 'vision_describe')
+  const second = JSON.parse(await tool.execute(
+    { attachmentIds: [IMG_ID], question: 'different structured question', json: true },
+    { agent: { session: fakeSession(1) } },
+  ))
+  assert.equal(second.summary, 'fallback backend succeeded')
+  assert.equal(mock.calls.get('qwen-a/qwen3.6-flash'), 2, 'breaker skips malformed backend for the turn')
+  assert.equal(mock.calls.get('qwen-b/qwen3.6-plus'), 2)
+})
+
 // ── Test 2: repeated vision_describe must not re-hit the tripped 401 ───────
 
 test('Test 2: a second vision_describe in the same turn skips the tripped provider and fails fast', async () => {

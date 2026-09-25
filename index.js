@@ -3062,9 +3062,9 @@ ctx.logger?.info(
 
                 }
               }
-              const fallback = `vision_describe: the model did not produce valid JSON. Raw output:\n${text.slice(0, 2000)}`
-              if (cacheEnabled()) cache.set(key, fallback)
-              return fallback
+              const invalidJson = new Error('vision_describe backend did not produce valid JSON after one correction retry')
+              invalidJson.code = 'INVALID_REQUEST'
+              throw invalidJson
             }
             if (text !== '') {
               if (cacheEnabled()) cache.set(key, text)
@@ -3188,9 +3188,9 @@ ctx.logger?.info(
 
                 }
               }
-              const fallback = `vision_describe: the model did not produce valid JSON. Raw output:\n${text.slice(0, 2000)}`
-              if (cacheEnabled()) cache.set(key, fallback)
-              return fallback
+              const invalidJson = new Error('vision_describe backend did not produce valid JSON after one correction retry')
+              invalidJson.code = 'INVALID_REQUEST'
+              throw invalidJson
             }
             if (text !== '') {
               if (cacheEnabled()) cache.set(key, text)
