@@ -255,6 +255,48 @@ test('first pre-step after feed activation backfills pre-subscription repairs an
   assert.equal(session.appended[2].data.message.sanitized, true)
 })
 
+test('feed activation backfill retries after a transient SessionQuery read failure', async () => {
+  let logReads = 0
+  const events = [
+    {
+      seq: 0,
+      type: 'tool/result',
+      data: {
+        message: {
+          hasImage: true,
+          content: [{ type: 'image', attachment: ref('retry-gap-image') }],
+        },
+      },
+    },
+  ]
+  const index = createSessionVisionIndex({
+    stateStore: createSessionVisionStateStore(),
+    core: coreStub(),
+    readSessionLog: async () => {
+      logReads += 1
+      if (logReads === 1) throw new Error('transient session log read failure')
+      return { supported: true, events }
+    },
+  })
+  const session = sessionWithSurface([0])
+  index.activateSurfaceEventFeed()
+
+  await index.prepareDecision({ agent: { session }, messages: [] }, { messages: [] })
+  assert.equal(logReads, 1)
+  assert.equal(session.appended.length, 0, 'failed backfill must not invent a repair')
+  assert.equal(index.lookupAttachment(session, 'retry-gap-image'), undefined)
+
+  await index.prepareDecision({ agent: { session }, messages: [] }, { messages: [] })
+  assert.equal(logReads, 2, 'a failed activation snapshot must be retried')
+  assert.equal(session.appended.length, 1)
+  assert.equal(session.appended[0].data.message.sanitized, true)
+  assert.equal(index.lookupAttachment(session, 'retry-gap-image')?.attachmentId, 'retry-gap-image')
+
+  await index.prepareDecision({ agent: { session }, messages: [] }, { messages: [] })
+  assert.equal(logReads, 2, 'successful retry must become the one-shot cached backfill')
+  assert.equal(session.appended.length, 1)
+})
+
 test('feed activation backfill ignores stale equal-length scan cursors after a surface rebuild', async () => {
   let events = [
     { seq: 0, type: 'tool/result', data: { message: { hasImage: false } } },
